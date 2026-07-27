@@ -170,6 +170,12 @@ export default function UploadPage() {
                 🗂️ Generate flashcards
               </button>
               <button
+                onClick={() => router.push(`/planner/generate?materialId=${materialId}`)}
+                className="border border-white/10 px-6 py-3 rounded-full hover:border-gold/40 transition"
+              >
+                📅 Build a study plan
+              </button>
+              <button
                 onClick={() => router.push(`/chat/${materialId}`)}
                 className="border border-white/10 px-6 py-3 rounded-full hover:border-gold/40 transition"
               >

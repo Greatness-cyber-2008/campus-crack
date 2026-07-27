@@ -18,6 +18,7 @@ export default function AppNav({ active }: { active?: string }) {
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/upload', label: 'Upload' },
     { href: '/flashcards', label: 'Flashcards' },
+    { href: '/planner', label: 'Planner' },
     { href: '/library', label: 'My sets' },
     { href: '/analytics', label: 'Analytics' },
     { href: '/browse', label: 'Community' },
@@ -31,7 +32,6 @@ export default function AppNav({ active }: { active?: string }) {
           CAMPUSCRACK
         </Link>
 
-        {/* Desktop links - hidden below md */}
         <div className="hidden md:flex items-center gap-6 text-sm">
           {links.map((l) => (
             <Link
@@ -47,7 +47,6 @@ export default function AppNav({ active }: { active?: string }) {
           </button>
         </div>
 
-        {/* Mobile hamburger - hidden from md up */}
         <button
           onClick={() => setMenuOpen((v) => !v)}
           aria-label="Toggle menu"
@@ -64,7 +63,6 @@ export default function AppNav({ active }: { active?: string }) {
         </button>
       </div>
 
-      {/* Mobile dropdown */}
       {menuOpen && (
         <div className="md:hidden border-t border-white/10 px-4 py-3 flex flex-col gap-1">
           {links.map((l) => (

@@ -24,9 +24,6 @@ interface BuildPromptArgs {
   courseCode?: string;
 }
 
-// Discipline-specific instructions injected into every prompt.
-// This is what makes a Computing quiz feel different from a Medical one,
-// even off the same generic "explain concept X" source material.
 const DISCIPLINE_GUIDANCE: Record<Discipline, string> = {
   computing: `
 - Where the material covers algorithms, code, networking, or systems, write questions that require tracing logic,
@@ -78,6 +75,47 @@ Generate written/theory exam-style questions, matching how Nigerian university w
   this is what the student will use to self-grade, so make the marking points specific and checkable, not vague.
 - Vary question command words appropriately (define, explain, discuss, differentiate, analyze, evaluate) rather than
   using "explain" for everything.`;
+
+export function buildStudyPlanPrompt({
+  extractedText,
+  totalWeeks,
+  courseCode,
+}: {
+  extractedText: string;
+  totalWeeks: number;
+  courseCode?: string;
+}): { system: string; user: string } {
+  const system = `You are helping a Nigerian university student break a course's material into a
+week-by-week study plan for CampusCrack. The goal is to keep them engaged with the course all
+semester, not just before exams. Base the plan strictly on the actual structure and content of the
+material provided — its sections, chapters, or topic groupings — not generic filler. You must respond
+with ONLY valid JSON — no markdown fences, no preamble, no commentary.`;
+
+  const user = `Course code: ${courseCode || 'Not specified'}
+Total weeks in the semester: ${totalWeeks}
+
+Break the study material below into exactly ${totalWeeks} weeks:
+- If the material has more distinct sections/topics than weeks, group closely related ones together
+  into the same week.
+- If it has fewer sections than weeks, split larger sections across multiple weeks rather than
+  leaving weeks empty or repeating content.
+- Each week needs a short "topic" (3-8 words) and a 1-2 sentence "description" of what it covers.
+- Order weeks the way the material is actually structured (assume it's already in a sensible order).
+
+Respond with ONLY this exact JSON shape:
+{
+  "weeks": [
+    {"week_number": 1, "topic": "string", "description": "string"}
+  ]
+}
+
+STUDY MATERIAL:
+"""
+${extractedText.slice(0, 60000)}
+"""`;
+
+  return { system, user };
+}
 
 export function buildFlashcardPrompt({
   extractedText,
