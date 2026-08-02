@@ -6,6 +6,9 @@ import { generateWithAI } from '@/lib/aiProvider';
 export const maxDuration = 60;
 
 const FREE_GENERATIONS_LIMIT = parseInt(process.env.FREE_GENERATIONS_LIMIT || '3', 10);
+// Cap combined text across all materials in a course — keeps the prompt within a sane size
+// even if a student has uploaded many files (notes + past questions + slides) for one course.
+const MAX_COMBINED_CHARS = 90000;
 
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
@@ -13,15 +16,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const { materialId, totalWeeks, startDate, title } = (await req.json()) as {
-    materialId: string;
+  const { materialId, courseId, totalWeeks, startDate, title } = (await req.json()) as {
+    materialId?: string;
+    courseId?: string;
     totalWeeks: number;
     startDate: string;
     title?: string;
   };
 
-  if (!materialId || !totalWeeks || !startDate) {
-    return NextResponse.json({ error: 'materialId, totalWeeks, and startDate are required' }, { status: 400 });
+  if ((!materialId && !courseId) || !totalWeeks || !startDate) {
+    return NextResponse.json(
+      { error: 'Either materialId or courseId is required, along with totalWeeks and startDate' },
+      { status: 400 }
+    );
   }
 
   const supa = supabaseServer();
@@ -58,23 +65,70 @@ export async function POST(req: Request) {
     }
   }
 
-  const { data: material, error: materialError } = await supa
-    .from('materials')
-    .select('extracted_text, user_id, course_code, discipline')
-    .eq('id', materialId)
-    .single();
+  // ---- Gather the source text: either one material, or every material in a course combined ----
+  let combinedText = '';
+  let resolvedCourseCode: string | null = null;
+  let resolvedDiscipline: string | null = null;
+  let resolvedTitle: string | null = null;
 
-  if (materialError || !material || material.user_id !== user.id) {
-    return NextResponse.json({ error: 'Material not found' }, { status: 404 });
-  }
-  if (!material.extracted_text) {
-    return NextResponse.json({ error: 'Material still processing, try again shortly' }, { status: 409 });
+  if (courseId) {
+    const { data: course, error: courseError } = await supa
+      .from('courses')
+      .select('id, user_id, title, course_code, discipline')
+      .eq('id', courseId)
+      .single();
+
+    if (courseError || !course || course.user_id !== user.id) {
+      return NextResponse.json({ error: 'Course not found' }, { status: 404 });
+    }
+
+    const { data: materials, error: materialsError } = await supa
+      .from('materials')
+      .select('title, extracted_text, status')
+      .eq('course_id', courseId)
+      .eq('user_id', user.id);
+
+    if (materialsError || !materials || materials.length === 0) {
+      return NextResponse.json({ error: 'No materials found in this course yet' }, { status: 404 });
+    }
+
+    const readyMaterials = materials.filter((m) => m.status === 'ready' && m.extracted_text);
+    if (readyMaterials.length === 0) {
+      return NextResponse.json({ error: 'Materials in this course are still processing, try again shortly' }, { status: 409 });
+    }
+
+    combinedText = readyMaterials
+      .map((m) => `--- ${m.title} ---\n${m.extracted_text}`)
+      .join('\n\n')
+      .slice(0, MAX_COMBINED_CHARS);
+
+    resolvedCourseCode = course.course_code;
+    resolvedDiscipline = course.discipline;
+    resolvedTitle = title || `${course.title} Study Plan`;
+  } else {
+    const { data: material, error: materialError } = await supa
+      .from('materials')
+      .select('extracted_text, user_id, course_code, discipline, title')
+      .eq('id', materialId)
+      .single();
+
+    if (materialError || !material || material.user_id !== user.id) {
+      return NextResponse.json({ error: 'Material not found' }, { status: 404 });
+    }
+    if (!material.extracted_text) {
+      return NextResponse.json({ error: 'Material still processing, try again shortly' }, { status: 409 });
+    }
+
+    combinedText = material.extracted_text;
+    resolvedCourseCode = material.course_code;
+    resolvedDiscipline = material.discipline;
+    resolvedTitle = title || `${material.course_code || 'Course'} Study Plan`;
   }
 
   const { system, user: userPrompt } = buildStudyPlanPrompt({
-    extractedText: material.extracted_text,
+    extractedText: combinedText,
     totalWeeks,
-    courseCode: material.course_code,
+    courseCode: resolvedCourseCode || undefined,
   });
 
   let rawText: string;
@@ -105,10 +159,11 @@ export async function POST(req: Request) {
     .from('study_plans')
     .insert({
       user_id: user.id,
-      material_id: materialId,
-      title: title || `${material.course_code || 'Course'} Study Plan`,
-      course_code: material.course_code,
-      discipline: material.discipline,
+      material_id: courseId ? null : materialId,
+      course_id: courseId || null,
+      title: resolvedTitle,
+      course_code: resolvedCourseCode,
+      discipline: resolvedDiscipline,
       start_date: startDate,
       total_weeks: totalWeeks,
     })
@@ -125,6 +180,7 @@ export async function POST(req: Request) {
     week_number: w.week_number,
     topic: w.topic,
     description: w.description || null,
+    study_tip: w.study_tip || null,
   }));
 
   const { error: weeksError } = await supa.from('study_plan_weeks').insert(rows);

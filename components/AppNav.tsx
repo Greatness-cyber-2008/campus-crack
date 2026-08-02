@@ -18,6 +18,7 @@ export default function AppNav({ active }: { active?: string }) {
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/upload', label: 'Upload' },
     { href: '/flashcards', label: 'Flashcards' },
+    { href: '/courses', label: 'Courses' },
     { href: '/planner', label: 'Planner' },
     { href: '/library', label: 'My sets' },
     { href: '/analytics', label: 'Analytics' },

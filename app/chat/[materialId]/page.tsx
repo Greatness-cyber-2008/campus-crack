@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, use, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useUser, getAuthHeader } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
@@ -24,23 +24,37 @@ interface PendingAttachment {
   mimeType: string;
 }
 
-// Safety net: even though the system prompt asks the AI not to use markdown, strip any
-// stray formatting symbols that slip through so they never show up in the chat bubble
-// or get read out loud by text-to-speech (e.g. "asterisk asterisk").
 function cleanText(text: string): string {
   return text
-    .replace(/\*\*(.*?)\*\*/g, '$1') // **bold**
-    .replace(/\*(.*?)\*/g, '$1') // *italic*
-    .replace(/`([^`]*)`/g, '$1') // `code`
-    .replace(/^#{1,6}\s+/gm, '') // # headers
-    .replace(/^[-*]\s+/gm, '') // bullet markers at line start
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*]\s+/gm, '')
     .trim();
 }
 
-export default function ChatPage({ params }: { params: { materialId: string } }) {
+export default function ChatPage({ params }: { params: Promise<{ materialId: string }> }) {
+  const { materialId } = use(params);
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-ink text-paper flex items-center justify-center">
+          <p className="text-slate">Loading chat…</p>
+        </main>
+      }
+    >
+      <ChatContent materialId={materialId} />
+    </Suspense>
+  );
+}
+
+function ChatContent({ materialId }: { materialId: string }) {
   const { user } = useUser();
   const router = useRouter();
-  const isGeneral = params.materialId === 'general';
+  const searchParams = useSearchParams();
+  const isGeneral = materialId === 'general';
+  const autoAsk = searchParams.get('autoAsk');
 
   const [material, setMaterial] = useState<MaterialInfo | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -53,6 +67,7 @@ export default function ChatPage({ params }: { params: { materialId: string } })
   const [speechSupported, setSpeechSupported] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const autoAskFiredRef = useRef(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,7 +80,7 @@ export default function ChatPage({ params }: { params: { materialId: string } })
         const { data: materialData } = await supabase
           .from('materials')
           .select('id, title, course_code')
-          .eq('id', params.materialId)
+          .eq('id', materialId)
           .single();
         setMaterial(materialData);
       }
@@ -76,28 +91,38 @@ export default function ChatPage({ params }: { params: { materialId: string } })
         .eq('user_id', user.id)
         .order('created_at', { ascending: true });
 
-      query = isGeneral ? query.is('material_id', null) : query.eq('material_id', params.materialId);
+      query = isGeneral ? query.is('material_id', null) : query.eq('material_id', materialId);
 
       const { data: messageData } = await query;
       setMessages((messageData || []).map((m) => ({ ...m, content: cleanText(m.content) })));
       setLoading(false);
     })();
-  }, [user, params.materialId, isGeneral]);
+  }, [user, materialId, isGeneral]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, sending]);
 
-  // Feature-detect the browser's built-in speech recognition (Chrome/Android support is solid, Safari/iOS is weak)
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     setSpeechSupported(!!SpeechRecognition);
 
-    // Stop any in-progress speech if the student navigates away from this page
     return () => {
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     };
   }, []);
+
+  // If we arrived here via a "Ask the tutor about this" link (e.g. from the study
+  // planner), automatically ask that question instead of leaving it sitting unanswered —
+  // fires once per page visit regardless of whether this chat already has history,
+  // since arriving from a specific week's link should always ask that question fresh.
+  useEffect(() => {
+    if (!loading && autoAsk && !autoAskFiredRef.current) {
+      autoAskFiredRef.current = true;
+      sendMessage(autoAsk);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, autoAsk]);
 
   function toggleVoiceInput() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -127,7 +152,7 @@ export default function ChatPage({ params }: { params: { materialId: string } })
 
   function speak(text: string, messageId: string) {
     if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel(); // stop any currently playing speech first
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(cleanText(text));
     utterance.rate = 1;
     utterance.onend = () => setSpeakingId(null);
@@ -148,7 +173,7 @@ export default function ChatPage({ params }: { params: { materialId: string } })
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      const base64 = result.split(',')[1]; // strip the data:mime;base64, prefix
+      const base64 = result.split(',')[1];
       setAttachment({
         file,
         previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
@@ -157,23 +182,20 @@ export default function ChatPage({ params }: { params: { materialId: string } })
       });
     };
     reader.readAsDataURL(file);
-    e.target.value = ''; // allow re-selecting the same file later
+    e.target.value = '';
   }
 
-  async function handleSend() {
-    const trimmed = input.trim();
-    if ((!trimmed && !attachment) || sending) return;
+  async function sendMessage(messageText: string, withAttachment: PendingAttachment | null = null) {
+    const trimmed = messageText.trim();
+    if ((!trimmed && !withAttachment) || sending) return;
 
     setError(null);
     setSending(true);
-    const attachmentToSend = attachment;
-    setInput('');
-    setAttachment(null);
 
     const optimisticMsg: Message = {
       id: `local-${Date.now()}`,
       role: 'user',
-      content: trimmed || (attachmentToSend ? '📎 (attached file)' : ''),
+      content: trimmed || (withAttachment ? '📎 (attached file)' : ''),
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimisticMsg]);
@@ -184,11 +206,9 @@ export default function ChatPage({ params }: { params: { materialId: string } })
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({
-          materialId: isGeneral ? 'general' : params.materialId,
+          materialId: isGeneral ? 'general' : materialId,
           message: trimmed,
-          attachment: attachmentToSend
-            ? { mimeType: attachmentToSend.mimeType, base64: attachmentToSend.base64 }
-            : undefined,
+          attachment: withAttachment ? { mimeType: withAttachment.mimeType, base64: withAttachment.base64 } : undefined,
         }),
       });
       const data = await res.json();
@@ -220,6 +240,15 @@ export default function ChatPage({ params }: { params: { materialId: string } })
     } finally {
       setSending(false);
     }
+  }
+
+  async function handleSend() {
+    const trimmed = input.trim();
+    if (!trimmed && !attachment) return;
+    const attachmentToSend = attachment;
+    setInput('');
+    setAttachment(null);
+    await sendMessage(trimmed, attachmentToSend);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {

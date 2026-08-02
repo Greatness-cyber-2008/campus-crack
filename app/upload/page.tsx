@@ -1,27 +1,65 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { v4 as uuidv4 } from 'uuid';
-import { useUser } from '@/lib/useUser';
+import { useUser, getAuthHeader } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
-import { getAuthHeader } from '@/lib/useUser';
 import AppNav from '@/components/AppNav';
 
 const DISCIPLINES = ['computing', 'medical', 'commercial', 'science', 'arts', 'law', 'engineering', 'general'];
 
+interface Course {
+  id: string;
+  title: string;
+  course_code: string | null;
+}
+
 export default function UploadPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-ink text-paper flex items-center justify-center">
+          <p className="text-slate">Loading…</p>
+        </main>
+      }
+    >
+      <UploadForm />
+    </Suspense>
+  );
+}
+
+function UploadForm() {
   const { user } = useUser();
   const router = useRouter();
+  const params = useSearchParams();
+  const preselectedCourseId = params.get('courseId');
 
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [courseCode, setCourseCode] = useState('');
   const [discipline, setDiscipline] = useState('general');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>(preselectedCourseId || '');
   const [status, setStatus] = useState<'idle' | 'uploading' | 'extracting' | 'done' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [materialId, setMaterialId] = useState<string | null>(null);
   const [usedOcr, setUsedOcr] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data } = await supabase
+        .from('courses')
+        .select('id, title, course_code')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      setCourses(data || []);
+    })();
+  }, [user]);
+
+  const preselectedCourse = courses.find((c) => c.id === preselectedCourseId);
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +78,7 @@ export default function UploadPage() {
         .from('materials')
         .insert({
           user_id: user.id,
+          course_id: selectedCourseId || null,
           title: title || file.name,
           course_code: courseCode || null,
           discipline,
@@ -83,6 +122,35 @@ export default function UploadPage() {
 
         {status !== 'done' ? (
           <form onSubmit={handleUpload} className="space-y-4">
+            {preselectedCourse ? (
+              <div className="bg-gold/10 border border-gold/30 rounded-lg px-4 py-3 text-sm">
+                Uploading to course: <span className="text-gold font-semibold">{preselectedCourse.title}</span>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm text-slate mb-1">Add to a course (optional)</label>
+                <select
+                  value={selectedCourseId}
+                  onChange={(e) => setSelectedCourseId(e.target.value)}
+                  className="w-full bg-inkLight border border-white/10 rounded-lg px-4 py-3 focus:border-gold outline-none"
+                >
+                  <option value="">No course — standalone upload</option>
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                      {c.course_code ? ` (${c.course_code})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-slate text-xs mt-1">
+                  Grouping files under a course lets you build one study plan from all of them combined.{' '}
+                  <Link href="/courses/create" className="text-gold">
+                    Create a new course
+                  </Link>
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="block text-sm text-slate mb-1">File (PDF or .txt)</label>
               <input
@@ -182,6 +250,13 @@ export default function UploadPage() {
                 💬 Chat about this material
               </button>
             </div>
+            {(selectedCourseId || preselectedCourseId) && (
+              <p className="text-slate text-xs mt-4">
+                <Link href={`/courses/${selectedCourseId || preselectedCourseId}`} className="text-gold">
+                  ← Back to course
+                </Link>
+              </p>
+            )}
           </div>
         )}
       </div>

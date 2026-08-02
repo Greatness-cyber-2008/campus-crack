@@ -5,13 +5,10 @@ import { chatWithAI, ChatTurn, ChatAttachment } from '@/lib/aiProvider';
 export const maxDuration = 60;
 
 const FREE_CHAT_MESSAGES_PER_DAY = parseInt(process.env.FREE_CHAT_MESSAGES_PER_DAY || '15', 10);
-
-// How many previous turns to feed back as context - keeps token usage bounded
-// even in a very long-running conversation.
 const MAX_HISTORY_TURNS = 20;
 
 const NO_MARKDOWN_INSTRUCTION = `Write in plain conversational sentences and paragraphs only. Do NOT
-use markdown formatting of any kind — no asterisks for bold or italics, no "#" headers, no markdown
+use markdown formatting of any kind - no asterisks for bold or italics, no "#" headers, no markdown
 bullet lists, no backticks. This chat displays plain text and also gets read aloud by text-to-speech,
 so any formatting symbols would show up as literal characters or get read out loud. If you need to
 list steps, just write "First, ... Then, ... Finally, ..." in plain sentences, or use plain numbers
@@ -26,7 +23,12 @@ Keep answers conversational and not overly long - this is a chat, not an essay.
 
 ${NO_MARKDOWN_INSTRUCTION}`;
 
-function buildMaterialSystemPrompt(materialText: string, courseCode: string | null, discipline: string | null) {
+function buildMaterialSystemPrompt(
+  materialText: string,
+  courseCode: string | null,
+  discipline: string | null,
+  currentWeekContext: string | null
+) {
   return `You are a patient, encouraging study tutor helping a Nigerian university student understand
 their own course material inside an app called CampusCrack. ${courseCode ? `The course is ${courseCode}. ` : ''}${
     discipline ? `Discipline: ${discipline}. ` : ''
@@ -38,13 +40,23 @@ asks something the material doesn't cover, say so honestly before answering from
 so they know when they're outside their own notes. If they share a photo or file in this chat, read
 it and help with exactly what they're asking. Keep answers conversational and not overly long - this
 is a chat, not an essay.
-
+${currentWeekContext ? `\n${currentWeekContext}\n` : ''}
 ${NO_MARKDOWN_INSTRUCTION}
 
 STUDY MATERIAL:
 """
 ${materialText.slice(0, 60000)}
 """`;
+}
+
+// If this material has a study plan, work out which week the student is
+// currently on, so the tutor can proactively reference "this week's" focus
+// even if the student didn't arrive here via the plan's "ask about this" link.
+function getCurrentWeekNumber(startDate: string): number {
+  const start = new Date(startDate);
+  const today = new Date();
+  const diffMs = today.getTime() - start.getTime();
+  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
 }
 
 export async function POST(req: Request) {
@@ -68,6 +80,7 @@ export async function POST(req: Request) {
   const supa = supabaseServer();
 
   let material: { extracted_text: string; course_code: string | null; discipline: string | null } | null = null;
+  let currentWeekContext: string | null = null;
 
   if (!isGeneral) {
     const { data, error: materialError } = await supa
@@ -83,9 +96,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'This material is still processing, try again shortly' }, { status: 409 });
     }
     material = data;
+
+    // If this material has a study plan, work out the current week so the tutor can
+    // reference it proactively, even without arriving via the plan's "ask about this" link.
+    const { data: plan } = await supa
+      .from('study_plans')
+      .select('id, start_date, total_weeks')
+      .eq('material_id', materialId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (plan) {
+      const weekNum = getCurrentWeekNumber(plan.start_date);
+      if (weekNum >= 1 && weekNum <= plan.total_weeks) {
+        const { data: week } = await supa
+          .from('study_plan_weeks')
+          .select('topic, description, study_tip')
+          .eq('study_plan_id', plan.id)
+          .eq('week_number', weekNum)
+          .maybeSingle();
+
+        if (week) {
+          currentWeekContext = `According to the student's study plan, this week's focus is: "${week.topic}".${
+            week.description ? ` ${week.description}` : ''
+          }${week.study_tip ? ` Suggested this week: ${week.study_tip}` : ''} Feel free to reference this if it's relevant to what they ask, without forcing it into every reply.`;
+        }
+      }
+    }
   }
 
-  // ---- Paywall: free users get a daily message cap (shared across general + material chats), premium is unlimited ----
   const { data: profile } = await supa.from('profiles').select('is_premium').eq('id', user.id).single();
 
   if (!profile?.is_premium) {
@@ -103,15 +142,13 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error: 'paywall',
-          message: `Free plan is capped at ${FREE_CHAT_MESSAGES_PER_DAY} chat messages a day. Unlock full access for N3,500 for unlimited chat.`,
+          message: `Free plan is capped at ${FREE_CHAT_MESSAGES_PER_DAY} chat messages a day. Unlock full access for ₦3,500 for unlimited chat.`,
         },
         { status: 402 }
       );
     }
   }
 
-  // ---- Load recent conversation history for context ----
-  // General chat history and material-specific chat history are kept separate by filtering on material_id.
   let historyQuery = supa
     .from('chat_messages')
     .select('role, content')
@@ -130,8 +167,6 @@ export async function POST(req: Request) {
   const userMessageText = message?.trim() || (attachment ? '(shared a file)' : '');
   history.push({ role: 'user', content: userMessageText, attachment });
 
-  // ---- Save the user's message immediately (so it's not lost if the AI call fails) ----
-  // Note: attachments are analyzed in the moment but not persisted - only a text placeholder is saved.
   await supa.from('chat_messages').insert({
     user_id: user.id,
     material_id: isGeneral ? null : materialId,
@@ -139,10 +174,9 @@ export async function POST(req: Request) {
     content: attachment ? `${userMessageText} [attached file]` : userMessageText,
   });
 
-  // ---- Call the AI ----
   const system = isGeneral
     ? GENERAL_TUTOR_SYSTEM_PROMPT
-    : buildMaterialSystemPrompt(material!.extracted_text, material!.course_code, material!.discipline);
+    : buildMaterialSystemPrompt(material!.extracted_text, material!.course_code, material!.discipline, currentWeekContext);
 
   let reply: string;
   try {

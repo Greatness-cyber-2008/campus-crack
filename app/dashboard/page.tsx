@@ -151,6 +151,10 @@ export default function DashboardPage() {
             <h3 className="font-semibold mb-1">📅 Study Planner</h3>
             <p className="text-slate text-sm">Week-by-week breakdown of your course.</p>
           </Link>
+          <Link href="/courses" className="border border-white/10 rounded-2xl p-6 hover:border-white/30 transition">
+            <h3 className="font-semibold mb-1">📚 My Courses</h3>
+            <p className="text-slate text-sm">Group files by course, plan the whole semester at once.</p>
+          </Link>
           <Link href="/upload" className="border border-white/10 rounded-2xl p-6 hover:border-white/30 transition">
             <h3 className="font-semibold mb-1">Upload new material</h3>
             <p className="text-slate text-sm">Turn a PDF or your notes into a fresh practice set.</p>

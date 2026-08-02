@@ -100,12 +100,16 @@ Break the study material below into exactly ${totalWeeks} weeks:
 - If it has fewer sections than weeks, split larger sections across multiple weeks rather than
   leaving weeks empty or repeating content.
 - Each week needs a short "topic" (3-8 words) and a 1-2 sentence "description" of what it covers.
+- Each week also needs a "study_tip": one concrete, actionable sentence telling the student exactly
+  what to DO that week — not a restatement of the topic. Examples: "Make flashcards for the five key
+  terms in this section before Friday" or "This week builds directly on last week's material — review
+  your notes on that first if it felt shaky." Vary the tips; don't make them all the same shape.
 - Order weeks the way the material is actually structured (assume it's already in a sensible order).
 
 Respond with ONLY this exact JSON shape:
 {
   "weeks": [
-    {"week_number": 1, "topic": "string", "description": "string"}
+    {"week_number": 1, "topic": "string", "description": "string", "study_tip": "string"}
   ]
 }
 

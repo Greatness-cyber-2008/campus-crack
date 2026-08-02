@@ -24,6 +24,7 @@ function PlannerGenerateForm() {
   const router = useRouter();
   const params = useSearchParams();
   const materialId = params.get('materialId');
+  const courseId = params.get('courseId');
 
   const [title, setTitle] = useState('');
   const [totalWeeks, setTotalWeeks] = useState(12);
@@ -32,7 +33,7 @@ function PlannerGenerateForm() {
   const [error, setError] = useState<string | null>(null);
 
   async function handleGenerate() {
-    if (!materialId) return;
+    if (!materialId && !courseId) return;
     setLoading(true);
     setError(null);
 
@@ -40,7 +41,7 @@ function PlannerGenerateForm() {
     const res = await fetch('/api/generate-study-plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader },
-      body: JSON.stringify({ materialId, totalWeeks, startDate, title }),
+      body: JSON.stringify({ materialId, courseId, totalWeeks, startDate, title }),
     });
 
     const data = await res.json();
@@ -66,7 +67,9 @@ function PlannerGenerateForm() {
       <div className="px-4 sm:px-6 md:px-12 py-6 sm:py-10 max-w-xl mx-auto">
         <h1 className="text-2xl font-semibold mb-1">Build a study plan</h1>
         <p className="text-slate mb-8 text-sm">
-          Upload a course outline or syllabus and get a week-by-week breakdown for the whole semester.
+          {courseId
+            ? 'This plan will be built from every file uploaded to this course, combined.'
+            : 'Upload a course outline or syllabus and get a week-by-week breakdown for the whole semester.'}
         </p>
 
         <div className="space-y-6">
@@ -107,14 +110,14 @@ function PlannerGenerateForm() {
 
           <button
             onClick={handleGenerate}
-            disabled={loading || !materialId}
+            disabled={loading || (!materialId && !courseId)}
             className="w-full bg-gold text-ink font-semibold py-3 rounded-full hover:brightness-110 transition disabled:opacity-60"
           >
             {loading ? 'Building your study plan…' : 'Build study plan'}
           </button>
-          {!materialId && (
+          {!materialId && !courseId && (
             <p className="text-stamp text-sm text-center">
-              No material selected — go back and upload your course outline/syllabus first.
+              No material or course selected — go back and upload your course outline/syllabus first.
             </p>
           )}
         </div>

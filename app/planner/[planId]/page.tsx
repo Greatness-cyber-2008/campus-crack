@@ -1,6 +1,7 @@
 'use client';
 
-import {use, useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useUser } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
@@ -10,12 +11,15 @@ interface PlanWeek {
   week_number: number;
   topic: string;
   description: string | null;
+  study_tip: string | null;
 }
 interface PlanInfo {
   id: string;
   title: string;
   start_date: string;
   total_weeks: number;
+  material_id: string | null;
+  course_id: string | null;
 }
 
 function getCurrentWeekNumber(startDate: string): number {
@@ -26,9 +30,20 @@ function getCurrentWeekNumber(startDate: string): number {
   return diffWeeks;
 }
 
-export default function StudyPlanPage({ params }: { params: Promise<{ planId: string }>; }) {
+// Builds the query string that lets the chat page auto-ask about this
+// specific week the moment the student lands there, instead of opening
+// to a blank chat with no idea what "this" refers to.
+function buildAskAboutWeekLink(chatBase: string, week: PlanWeek): string {
+  const parts = [`Explain this week's topic in more depth: ${week.topic}.`];
+  if (week.description) parts.push(week.description);
+  if (week.study_tip) parts.push(`Study tip to build on: ${week.study_tip}`);
+  const autoAsk = parts.join(' ');
+  return `${chatBase}?autoAsk=${encodeURIComponent(autoAsk)}`;
+}
+
+export default function StudyPlanPage({ params }: { params: Promise<{ planId: string }> }) {
   const { planId } = use(params);
-  const { user   } = useUser();
+  const { user } = useUser();
   const [plan, setPlan] = useState<PlanInfo | null>(null);
   const [weeks, setWeeks] = useState<PlanWeek[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,13 +56,13 @@ export default function StudyPlanPage({ params }: { params: Promise<{ planId: st
     (async () => {
       const { data: planData } = await supabase
         .from('study_plans')
-        .select('id, title, start_date, total_weeks')
+        .select('id, title, start_date, total_weeks, material_id, course_id')
         .eq('id', planId)
         .single();
 
       const { data: weeksData } = await supabase
         .from('study_plan_weeks')
-        .select('id, week_number, topic, description')
+        .select('id, week_number, topic, description, study_tip')
         .eq('study_plan_id', planId)
         .order('week_number');
 
@@ -92,13 +107,21 @@ export default function StudyPlanPage({ params }: { params: Promise<{ planId: st
   }
 
   const currentWeek = getCurrentWeekNumber(plan.start_date);
+  const chatLink = plan.material_id ? `/chat/${plan.material_id}` : '/chat/general';
 
   return (
     <main className="min-h-screen bg-ink text-paper">
       <AppNav />
 
       <div className="px-4 sm:px-6 md:px-12 py-6 sm:py-10 max-w-3xl mx-auto">
-        <h1 className="text-2xl font-semibold mb-1">{plan.title}</h1>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h1 className="text-2xl font-semibold">{plan.title}</h1>
+          {plan.course_id && (
+            <Link href={`/courses/${plan.course_id}`} className="text-gold text-sm shrink-0">
+              ← Course
+            </Link>
+          )}
+        </div>
         <p className="text-slate mb-8 text-sm">
           {plan.total_weeks} weeks · started {new Date(plan.start_date).toLocaleDateString()}
         </p>
@@ -166,6 +189,43 @@ export default function StudyPlanPage({ params }: { params: Promise<{ planId: st
                   <>
                     <p className="font-medium">{w.topic}</p>
                     {w.description && <p className="text-slate text-sm mt-1">{w.description}</p>}
+                    {w.study_tip && (
+                      <p className="text-sm mt-2 text-gold/90 bg-gold/5 border border-gold/20 rounded-lg px-3 py-2">
+                        💡 {w.study_tip}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <Link
+                        href={buildAskAboutWeekLink(chatLink, w)}
+                        className="text-xs border border-white/10 px-3 py-1.5 rounded-full hover:border-gold/40 transition"
+                      >
+                        💬 Ask the tutor about this
+                      </Link>
+                      {plan.material_id && (
+                        <>
+                          <Link
+                            href={`/generate?materialId=${plan.material_id}`}
+                            className="text-xs border border-white/10 px-3 py-1.5 rounded-full hover:border-gold/40 transition"
+                          >
+                            📝 Practice this week
+                          </Link>
+                          <Link
+                            href={`/flashcards/generate?materialId=${plan.material_id}`}
+                            className="text-xs border border-white/10 px-3 py-1.5 rounded-full hover:border-gold/40 transition"
+                          >
+                            🗂️ Flashcards
+                          </Link>
+                        </>
+                      )}
+                      {plan.course_id && !plan.material_id && (
+                        <Link
+                          href={`/courses/${plan.course_id}`}
+                          className="text-xs border border-white/10 px-3 py-1.5 rounded-full hover:border-gold/40 transition"
+                        >
+                          📝 Practice from a course file
+                        </Link>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
