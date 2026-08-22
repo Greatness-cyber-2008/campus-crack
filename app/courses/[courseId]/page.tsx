@@ -1,17 +1,26 @@
 'use client';
-import { use, useEffect, useState } from "react";
+
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useUser } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
 
-export default function CourseDetailPage({
-  params,
-}: {
-  params: Promise<{ courseId: string }>;
-}) {
-  const { courseId } = use(params);
+interface CourseInfo {
+  id: string;
+  title: string;
+  course_code: string | null;
+  discipline: string | null;
+}
+interface MaterialRow {
+  id: string;
+  title: string;
+  status: string;
+  created_at: string;
+}
 
+export default function CourseDetailPage({ params }: { params: Promise<{ courseId: string }> }) {
+  const { courseId } = use(params);
   const { user } = useUser();
   const [course, setCourse] = useState<CourseInfo | null>(null);
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
