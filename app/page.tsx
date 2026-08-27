@@ -12,6 +12,32 @@ const DISCIPLINES = [
 export default function LandingPage() {
   return (
     <main className="min-h-screen bg-ink text-paper">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'SoftwareApplication',
+            name: 'CampusCrack',
+            applicationCategory: 'EducationalApplication',
+            operatingSystem: 'Web',
+            url: 'https://campuscrack.com.ng',
+            description:
+              'Upload your lecture notes and PDFs and get CBT or Written practice questions, flashcards, and a week-by-week study plan built for your exact course.',
+            offers: {
+              '@type': 'Offer',
+              price: '3500',
+              priceCurrency: 'NGN',
+              description: 'Full access per semester',
+            },
+            audience: {
+              '@type': 'EducationalAudience',
+              educationalRole: 'student',
+            },
+          }),
+        }}
+      />
+
       {/* NAV */}
       <nav className="flex items-center justify-between px-4 sm:px-6 md:px-12 py-4 sm:py-6 border-b border-white/10">
         <span className="font-display text-sm sm:text-lg tracking-tight">CAMPUSCRACK</span>
