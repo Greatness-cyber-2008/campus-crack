@@ -1,28 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 
-interface Option {
-  key: string;
-  text: string;
-}
-interface Question {
-  id: string;
-  order_index: number;
-  prompt: string;
-  options: Option[];
-}
-interface QSet {
-  id: string;
-  title: string;
-  time_limit_minutes: number | null;
-  question_count: number;
-}
+interface Option { key: string; text: string; }
+interface Question { id: string; order_index: number; prompt: string; options: Option[]; }
+interface QSet { id: string; title: string; time_limit_minutes: number | null; question_count: number; }
 
-export default function CbtPracticePage({ params }: { params: { setId: string } }) {
+export default function CbtPracticePage({ params }: { params: Promise<{ setId: string }> }) {
+  const { setId } = use(params);
   const { user } = useUser();
   const router = useRouter();
 
@@ -41,17 +29,17 @@ export default function CbtPracticePage({ params }: { params: { setId: string } 
       const { data: qsetData } = await supabase
         .from('question_sets')
         .select('id, title, time_limit_minutes, question_count')
-        .eq('id', params.setId)
+        .eq('id', setId)
         .single();
       const { data: questionsData } = await supabase
         .from('questions')
         .select('id, order_index, prompt, options')
-        .eq('question_set_id', params.setId)
+        .eq('question_set_id', setId)
         .order('order_index');
 
       const { data: attempt } = await supabase
         .from('attempts')
-        .insert({ user_id: user.id, question_set_id: params.setId })
+        .insert({ user_id: user.id, question_set_id: setId })
         .select()
         .single();
 
@@ -62,7 +50,7 @@ export default function CbtPracticePage({ params }: { params: { setId: string } 
         setSecondsLeft(qsetData.time_limit_minutes * 60);
       }
     })();
-  }, [user, params.setId]);
+  }, [user, setId]);
 
   useEffect(() => {
     if (secondsLeft === null) return;
@@ -87,7 +75,7 @@ export default function CbtPracticePage({ params }: { params: { setId: string } 
     const { data: fullQuestions } = await supabase
       .from('questions')
       .select('id, correct_option, marks')
-      .eq('question_set_id', params.setId);
+      .eq('question_set_id', setId);
 
     let marksScored = 0;
     let totalMarks = 0;
@@ -112,13 +100,7 @@ export default function CbtPracticePage({ params }: { params: { setId: string } 
 
     await supabase
       .from('attempts')
-      .update({
-        submitted_at: new Date().toISOString(),
-        status: 'submitted',
-        score,
-        total_marks: totalMarks,
-        marks_scored: marksScored,
-      })
+      .update({ submitted_at: new Date().toISOString(), status: 'submitted', score, total_marks: totalMarks, marks_scored: marksScored })
       .eq('id', attemptId);
 
     router.push(`/results/${attemptId}`);
@@ -142,9 +124,7 @@ export default function CbtPracticePage({ params }: { params: { setId: string } 
       <header className="flex items-center justify-between gap-3 px-4 sm:px-6 md:px-12 py-4 sm:py-5 border-b border-white/10">
         <div className="min-w-0">
           <p className="font-semibold text-sm sm:text-base truncate">{qset.title}</p>
-          <p className="text-slate text-xs whitespace-nowrap">
-            Q{current + 1}/{questions.length} · {answeredCount} answered
-          </p>
+          <p className="text-slate text-xs whitespace-nowrap">Q{current + 1}/{questions.length} · {answeredCount} answered</p>
         </div>
         {secondsLeft !== null && (
           <div className={`font-mono text-base sm:text-lg shrink-0 ${secondsLeft < 60 ? 'text-stamp' : 'text-gold'}`}>
@@ -155,7 +135,6 @@ export default function CbtPracticePage({ params }: { params: { setId: string } 
 
       <div className="flex-1 px-4 sm:px-6 md:px-12 py-6 sm:py-10 max-w-3xl mx-auto w-full">
         <p className="text-base sm:text-lg mb-6 sm:mb-8 leading-relaxed whitespace-pre-wrap">{q.prompt}</p>
-
         <div className="space-y-3">
           {q.options?.map((opt) => (
             <button
@@ -173,27 +152,15 @@ export default function CbtPracticePage({ params }: { params: { setId: string } 
       </div>
 
       <footer className="flex items-center justify-between gap-3 px-4 sm:px-6 md:px-12 py-4 sm:py-5 border-t border-white/10">
-        <button
-          disabled={current === 0}
-          onClick={() => setCurrent((c) => c - 1)}
-          className="text-slate disabled:opacity-30 py-3 px-2 -mx-2"
-        >
+        <button disabled={current === 0} onClick={() => setCurrent((c) => c - 1)} className="text-slate disabled:opacity-30 py-3 px-2 -mx-2">
           ← Previous
         </button>
-
         {current < questions.length - 1 ? (
-          <button
-            onClick={() => setCurrent((c) => c + 1)}
-            className="bg-inkLight border border-white/10 px-5 sm:px-6 py-3 rounded-full hover:border-gold/40 transition"
-          >
+          <button onClick={() => setCurrent((c) => c + 1)} className="bg-inkLight border border-white/10 px-5 sm:px-6 py-3 rounded-full hover:border-gold/40 transition">
             Next →
           </button>
         ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="bg-stamp px-5 sm:px-6 py-3 rounded-full font-semibold hover:brightness-110 transition disabled:opacity-60"
-          >
+          <button onClick={handleSubmit} disabled={submitting} className="bg-stamp px-5 sm:px-6 py-3 rounded-full font-semibold hover:brightness-110 transition disabled:opacity-60">
             {submitting ? 'Submitting…' : 'Submit exam'}
           </button>
         )}
