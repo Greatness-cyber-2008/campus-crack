@@ -15,7 +15,13 @@ question generation, and Paystack for payments — same stack pattern as your ot
    - Row Level Security policies so users can only ever see their own data
    - A `materials` storage bucket (private) with per-user folder policies
    - A trigger that auto-creates a `profiles` row whenever someone signs up
-3. In **Project Settings → API**, copy:
+3. **Then run every migration file in `supabase/`, in order, from `migration_002_...` through the
+   highest-numbered one currently in the folder.** `schema.sql` alone only gets you the *original*
+   baseline — chat, flashcards, community sharing, analytics topics, streaks, the study planner,
+   courses, semester-based pricing, and the 2-device login limit were all added later as separate
+   migrations, and the live app depends on all of them. Skipping any of these on a fresh setup will
+   leave the corresponding feature silently broken (queries against a table/column that doesn't exist).
+4. In **Project Settings → API**, copy:
    - `Project URL` → `NEXT_PUBLIC_SUPABASE_URL`
    - `anon public` key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (keep this secret — server only)
