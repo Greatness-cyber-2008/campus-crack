@@ -11,6 +11,11 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   created_at: string;
+  failed?: {
+    error: string;
+    requestId: string;
+    attachment: PendingAttachment | null;
+  };
 }
 interface MaterialInfo {
   id: string;
@@ -61,7 +66,6 @@ function ChatContent({ materialId }: { materialId: string }) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -70,8 +74,10 @@ function ChatContent({ materialId }: { materialId: string }) {
   const autoAskFiredRef = useRef(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
   useEffect(() => {
     if (!user) return;
@@ -100,8 +106,20 @@ function ChatContent({ materialId }: { materialId: string }) {
   }, [user, materialId, isGeneral]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, sending]);
+    if (!shouldAutoScroll) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, sending, shouldAutoScroll]);
+
+  function handleChatScroll() {
+    const container = scrollRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShouldAutoScroll(distanceFromBottom < 96);
+  }
 
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -185,20 +203,28 @@ function ChatContent({ materialId }: { materialId: string }) {
     e.target.value = '';
   }
 
-  async function sendMessage(messageText: string, withAttachment: PendingAttachment | null = null) {
+  async function sendMessage(
+    messageText: string,
+    withAttachment: PendingAttachment | null = null,
+    retry?: { localId: string; requestId: string }
+  ) {
     const trimmed = messageText.trim();
     if ((!trimmed && !withAttachment) || sending) return;
 
-    setError(null);
+    const requestId = retry?.requestId || crypto.randomUUID();
+    const localId = retry?.localId || `local-${Date.now()}`;
+    setShouldAutoScroll(true);
     setSending(true);
 
     const optimisticMsg: Message = {
-      id: `local-${Date.now()}`,
+      id: localId,
       role: 'user',
       content: trimmed || (withAttachment ? '📎 (attached file)' : ''),
       created_at: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, optimisticMsg]);
+    setMessages((prev) =>
+      retry ? prev.map((chatMessage) => (chatMessage.id === localId ? { ...chatMessage, failed: undefined } : chatMessage)) : [...prev, optimisticMsg]
+    );
 
     try {
       const authHeader = await getAuthHeader();
@@ -208,6 +234,7 @@ function ChatContent({ materialId }: { materialId: string }) {
         body: JSON.stringify({
           materialId: isGeneral ? 'general' : materialId,
           message: trimmed,
+          requestId,
           attachment: withAttachment ? { mimeType: withAttachment.mimeType, base64: withAttachment.base64 } : undefined,
         }),
       });
@@ -218,14 +245,13 @@ function ChatContent({ materialId }: { materialId: string }) {
         return;
       }
       if (!res.ok) {
-        setError(data.error || 'Something went wrong, please try again');
-        return;
+        throw new Error(data.error || 'Could not get a reply. Check your connection and try again.');
       }
 
       const replyId = `local-reply-${Date.now()}`;
       const cleanedReply = cleanText(data.reply);
       setMessages((prev) => [
-        ...prev,
+        ...prev.map((chatMessage) => (chatMessage.id === localId ? { ...chatMessage, failed: undefined } : chatMessage)),
         {
           id: replyId,
           role: 'assistant',
@@ -236,10 +262,33 @@ function ChatContent({ materialId }: { materialId: string }) {
 
       if (autoSpeak) speak(cleanedReply, replyId);
     } catch (err) {
-      setError('Network error — please try again');
+      const errorMessage = err instanceof Error ? err.message : 'Network error. Check your connection and try again.';
+      setMessages((prev) =>
+        prev.map((chatMessage) =>
+          chatMessage.id === localId
+            ? { ...chatMessage, failed: { error: errorMessage, requestId, attachment: withAttachment } }
+            : chatMessage
+        )
+      );
     } finally {
       setSending(false);
     }
+  }
+
+  function retryMessage(message: Message) {
+    if (!message.failed) return;
+    void sendMessage(message.content, message.failed.attachment, {
+      localId: message.id,
+      requestId: message.failed.requestId,
+    });
+  }
+
+  function editFailedMessage(message: Message) {
+    if (!message.failed || sending) return;
+    setInput(message.content);
+    setAttachment(message.failed.attachment);
+    setMessages((prev) => prev.filter((chatMessage) => chatMessage.id !== message.id));
+    setShouldAutoScroll(true);
   }
 
   async function handleSend() {
@@ -267,7 +316,7 @@ function ChatContent({ materialId }: { materialId: string }) {
   }
 
   return (
-    <main className="min-h-screen bg-ink text-paper flex flex-col">
+    <main className="h-dvh bg-ink text-paper flex flex-col">
       <AppNav />
 
       <header className="flex items-center justify-between px-4 sm:px-6 md:px-12 py-3 sm:py-4 border-b border-white/10">
@@ -288,7 +337,11 @@ function ChatContent({ materialId }: { materialId: string }) {
         </button>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-12 py-6 max-w-2xl mx-auto w-full">
+      <div
+        ref={scrollRef}
+        onScroll={handleChatScroll}
+        className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 md:px-12 py-6 max-w-2xl mx-auto w-full"
+      >
         {messages.length === 0 && (
           <div className="text-center text-slate text-sm py-16">
             {isGeneral
@@ -306,6 +359,19 @@ function ChatContent({ materialId }: { materialId: string }) {
                 }`}
               >
                 {m.content}
+                {m.failed && (
+                  <div className="mt-3 pt-3 border-t border-ink/20 text-xs">
+                    <p className="font-medium">{m.failed.error}</p>
+                    <div className="flex gap-3 mt-2">
+                      <button onClick={() => retryMessage(m)} disabled={sending} className="underline font-semibold disabled:opacity-50">
+                        Retry
+                      </button>
+                      <button onClick={() => editFailedMessage(m)} disabled={sending} className="underline disabled:opacity-50">
+                        Edit message
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {m.role === 'assistant' && (
                   <button
                     onClick={() => (speakingId === m.id ? stopSpeaking() : speak(m.content, m.id))}
@@ -325,9 +391,8 @@ function ChatContent({ materialId }: { materialId: string }) {
               </div>
             </div>
           )}
+          <div ref={endOfMessagesRef} />
         </div>
-
-        {error && <p className="text-stamp text-sm text-center mt-4">{error}</p>}
       </div>
 
       <footer className="px-4 sm:px-6 md:px-12 py-4 border-t border-white/10">

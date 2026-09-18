@@ -65,10 +65,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const { materialId, message, attachment } = (await req.json()) as {
+  const { materialId, message, attachment, requestId } = (await req.json()) as {
     materialId?: string | null;
     message: string;
     attachment?: ChatAttachment;
+    requestId?: string;
   };
 
   const isGeneral = !materialId || materialId === 'general';
@@ -78,6 +79,20 @@ export async function POST(req: Request) {
   }
 
   const supa = supabaseServer();
+
+  // A retry can arrive after the first request finished but before the browser
+  // received its response. Return the original reply instead of creating a duplicate.
+  if (requestId) {
+    const { data: previousReply } = await supa
+      .from('chat_messages')
+      .select('content')
+      .eq('user_id', user.id)
+      .eq('request_id', requestId)
+      .eq('role', 'assistant')
+      .maybeSingle();
+
+    if (previousReply) return NextResponse.json({ reply: previousReply.content });
+  }
 
   let material: { extracted_text: string; course_code: string | null; discipline: string | null } | null = null;
   let currentWeekContext: string | null = null;
@@ -167,13 +182,6 @@ export async function POST(req: Request) {
   const userMessageText = message?.trim() || (attachment ? '(shared a file)' : '');
   history.push({ role: 'user', content: userMessageText, attachment });
 
-  await supa.from('chat_messages').insert({
-    user_id: user.id,
-    material_id: isGeneral ? null : materialId,
-    role: 'user',
-    content: attachment ? `${userMessageText} [attached file]` : userMessageText,
-  });
-
   const system = isGeneral
     ? GENERAL_TUTOR_SYSTEM_PROMPT
     : buildMaterialSystemPrompt(material!.extracted_text, material!.course_code, material!.discipline, currentWeekContext);
@@ -186,12 +194,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Could not get a reply, please try again' }, { status: 502 });
   }
 
-  await supa.from('chat_messages').insert({
-    user_id: user.id,
-    material_id: isGeneral ? null : materialId,
-    role: 'assistant',
-    content: reply,
-  });
+  const { error: saveError } = await supa.from('chat_messages').insert([
+    {
+      user_id: user.id,
+      material_id: isGeneral ? null : materialId,
+      role: 'user',
+      content: attachment ? `${userMessageText} [attached file]` : userMessageText,
+      request_id: requestId || null,
+    },
+    {
+      user_id: user.id,
+      material_id: isGeneral ? null : materialId,
+      role: 'assistant',
+      content: reply,
+      request_id: requestId || null,
+    },
+  ]);
+
+  if (saveError) {
+    // A concurrent retry may have saved the answer first. Return it if so.
+    if (requestId) {
+      const { data: previousReply } = await supa
+        .from('chat_messages')
+        .select('content')
+        .eq('user_id', user.id)
+        .eq('request_id', requestId)
+        .eq('role', 'assistant')
+        .maybeSingle();
+      if (previousReply) return NextResponse.json({ reply: previousReply.content });
+    }
+
+    console.error('Chat save error:', saveError);
+    return NextResponse.json({ error: 'Could not save this chat message, please try again' }, { status: 500 });
+  }
 
   return NextResponse.json({ reply });
 }
