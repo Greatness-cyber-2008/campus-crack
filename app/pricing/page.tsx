@@ -84,7 +84,7 @@ function PricingContent() {
 
   return (
     <main className="min-h-screen bg-ink text-paper">
-      <Script src="https://js.paystack.co/v1/inline.js" strategy="lazyOnload" />
+      <Script src="https://js.paystack.co/v2/inline.js" strategy="lazyOnload" />
       <AppNav active="Pricing" />
 
       <div className="px-4 sm:px-6 md:px-12 py-10 sm:py-16 max-w-4xl mx-auto text-center">
