@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { buildGenerationPrompt, Discipline, ExamMode, Difficulty } from '@/lib/promptBuilder';
 import { generateWithAI } from '@/lib/aiProvider';
+import { resolveTopicIds } from '@/lib/topics';
+import { logEvent } from '@/lib/analytics';
 
 export const maxDuration = 60; // AI generation can take a while for big materials
 
@@ -76,7 +78,7 @@ export async function POST(req: Request) {
   // ---- Fetch the extracted material text ----
   const { data: material, error: materialError } = await supa
     .from('materials')
-    .select('extracted_text, user_id, course_code')
+    .select('extracted_text, user_id, course_code, course_id')
     .eq('id', materialId)
     .single();
 
@@ -145,12 +147,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to save question set' }, { status: 500 });
   }
 
+  // Standardize each generated question's free-text topic into a real Topic row
+  // (Phase 1 of the implementation spec) — the free-text `topic` column stays too,
+  // so nothing that already reads it (like the existing Analytics page) breaks.
+  const topicMap = await resolveTopicIds(
+    supa,
+    user.id,
+    material.course_id || null,
+    parsed.questions.map((q: any) => q.topic)
+  );
+
   const rows = parsed.questions.map((q: any, idx: number) => ({
     question_set_id: questionSet.id,
     order_index: idx,
     question_type: examMode === 'cbt' ? 'mcq' : 'theory',
     prompt: q.prompt,
     topic: q.topic || null,
+    topic_id: q.topic ? topicMap[q.topic] || null : null,
     options: examMode === 'cbt' ? q.options : null,
     correct_option: examMode === 'cbt' ? q.correct_option : null,
     explanation: examMode === 'cbt' ? q.explanation : null,
@@ -172,6 +185,13 @@ export async function POST(req: Request) {
       .update({ free_generations_used: (profile?.free_generations_used || 0) + 1 })
       .eq('id', user.id);
   }
+
+  await logEvent(user.id, 'exam_generated', {
+    question_set_id: questionSet.id,
+    exam_mode: examMode,
+    discipline,
+    question_count: rows.length,
+  });
 
   return NextResponse.json({ questionSetId: questionSet.id });
 }

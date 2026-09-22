@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { buildFlashcardPrompt, Discipline } from '@/lib/promptBuilder';
 import { generateWithAI } from '@/lib/aiProvider';
+import { resolveTopicIds } from '@/lib/topics';
 
 export const maxDuration = 60;
 
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
 
   const { data: material, error: materialError } = await supa
     .from('materials')
-    .select('extracted_text, user_id, course_code, discipline')
+    .select('extracted_text, user_id, course_code, discipline, course_id')
     .eq('id', materialId)
     .single();
 
@@ -102,12 +103,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to save flashcard set' }, { status: 500 });
   }
 
+  const topicMap = await resolveTopicIds(
+    supa,
+    user.id,
+    material.course_id || null,
+    parsed.flashcards.map((c: any) => c.topic)
+  );
+
   const rows = parsed.flashcards.map((c: any, idx: number) => ({
     flashcard_set_id: flashcardSet.id,
     order_index: idx,
     front: c.front,
     back: c.back,
     topic: c.topic || null,
+    topic_id: c.topic ? topicMap[c.topic] || null : null,
   }));
 
   const { error: cardsError } = await supa.from('flashcards').insert(rows);
