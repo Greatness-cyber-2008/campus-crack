@@ -9,8 +9,8 @@ const nextConfig = {
   async headers() {
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.paystack.co https://va.vercel-scripts.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "script-src 'self' 'unsafe-hashes' 'unsafe-eval' https://js.paystack.co https://va.vercel-scripts.com",
+      "style-src 'self' 'unsafe-hashes' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.paystack.co https://js.paystack.co https://vitals.vercel-insights.com https://va.vercel-scripts.com",
