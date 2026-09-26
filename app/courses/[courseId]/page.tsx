@@ -104,13 +104,20 @@ export default function CourseDetailPage({ params }: { params: Promise<{ courseI
                 className="flex items-center justify-between border border-white/10 rounded-xl px-4 py-3"
               >
                 <p className="text-sm truncate mr-3">{m.title}</p>
-                <span
-                  className={`text-xs shrink-0 ${
-                    m.status === 'ready' ? 'text-gold' : m.status === 'failed' ? 'text-stamp' : 'text-slate'
-                  }`}
-                >
-                  {m.status === 'ready' ? 'Ready ✓' : m.status === 'failed' ? 'Failed' : 'Processing…'}
-                </span>
+                <div className="flex items-center gap-3 shrink-0">
+                  {m.status === 'ready' && (
+                    <Link href={`/chat/${m.id}`} className="text-gold text-xs hover:underline">
+                      💬 Chat
+                    </Link>
+                  )}
+                  <span
+                    className={`text-xs ${
+                      m.status === 'ready' ? 'text-gold' : m.status === 'failed' ? 'text-stamp' : 'text-slate'
+                    }`}
+                  >
+                    {m.status === 'ready' ? 'Ready ✓' : m.status === 'failed' ? 'Failed' : 'Processing…'}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
