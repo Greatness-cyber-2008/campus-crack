@@ -7,6 +7,16 @@ export const maxDuration = 60;
 const FREE_CHAT_MESSAGES_PER_DAY = parseInt(process.env.FREE_CHAT_MESSAGES_PER_DAY || '15', 10);
 const MAX_HISTORY_TURNS = 20;
 
+// Gives the model the real current date. Computed on every request so it never goes stale.
+function getDateContext() {
+  const now = new Date().toLocaleString('en-NG', {
+    timeZone: 'Africa/Lagos',
+    dateStyle: 'full',
+    timeStyle: 'short',
+  });
+  return `Today's date and time is ${now} (Nigeria time). Treat this as the real current date. Never say it is 2024 and never call dates up to today "the future". If asked about news or recent events you have no reliable information on, say so honestly instead of guessing or inventing headlines.`;
+}
+
 const NO_MARKDOWN_INSTRUCTION = `Write in plain conversational sentences and paragraphs only. Do NOT
 use markdown formatting of any kind - no asterisks for bold or italics, no "#" headers, no markdown
 bullet lists, no backticks. This chat displays plain text and also gets read aloud by text-to-speech,
@@ -143,8 +153,10 @@ export async function POST(req: Request) {
   const { data: profile } = await supa.from('profiles').select('is_premium').eq('id', user.id).single();
 
   if (!profile?.is_premium) {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    // Midnight in Nigeria (UTC+1, no daylight saving)
+    const lagosNow = new Date(Date.now() + 60 * 60 * 1000);
+    lagosNow.setUTCHours(0, 0, 0, 0);
+    const startOfToday = new Date(lagosNow.getTime() - 60 * 60 * 1000);
 
     const { count } = await supa
       .from('chat_messages')
@@ -182,9 +194,10 @@ export async function POST(req: Request) {
   const userMessageText = message?.trim() || (attachment ? '(shared a file)' : '');
   history.push({ role: 'user', content: userMessageText, attachment });
 
-  const system = isGeneral
+  const basePrompt = isGeneral
     ? GENERAL_TUTOR_SYSTEM_PROMPT
     : buildMaterialSystemPrompt(material!.extracted_text, material!.course_code, material!.discipline, currentWeekContext);
+  const system = `${getDateContext()}\n\n${basePrompt}`;
 
   let reply: string;
   try {
