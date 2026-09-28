@@ -201,7 +201,7 @@ export async function POST(req: Request) {
 
   let reply: string;
   try {
-    reply = await chatWithAI(system, history);
+    reply = await chatWithAI(system, history, { webSearch: isGeneral });
   } catch (err) {
     console.error('Chat AI error:', err);
     return NextResponse.json({ error: 'Could not get a reply, please try again' }, { status: 502 });
