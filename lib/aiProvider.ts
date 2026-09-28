@@ -235,16 +235,22 @@ export interface ChatTurn {
   attachment?: ChatAttachment;
 }
 
+export interface ChatOptions {
+  // When true, the OpenAI chat provider may use web search for current events.
+  webSearch?: boolean;
+}
+
 // -----------------------------------------------------------------------------
 // Chat provider switch
 // -----------------------------------------------------------------------------
 
 export async function chatWithAI(
   system: string,
-  history: ChatTurn[]
+  history: ChatTurn[],
+  options: ChatOptions = {}
 ): Promise<string> {
   if (PROVIDER === 'openai') {
-    return chatWithOpenAI(system, history);
+    return chatWithOpenAI(system, history, options.webSearch === true);
   }
 
   if (PROVIDER === 'anthropic') {
@@ -404,9 +410,17 @@ async function chatWithAnthropic(
 // OpenAI Chat
 // -----------------------------------------------------------------------------
 
+const WEB_SEARCH_NOTE = `
+
+You have a web search tool. Use it whenever the student asks about news, current events, recent
+developments, or anything that may have changed recently, and state the date of each event you
+report. Do not include URLs or links in your reply. Name the source in words instead, for example
+"according to Reuters". Keep following the plain-text formatting rules above.`;
+
 async function chatWithOpenAI(
   system: string,
-  history: ChatTurn[]
+  history: ChatTurn[],
+  webSearch: boolean = false
 ): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
 
@@ -416,13 +430,13 @@ async function chatWithOpenAI(
 
   const model = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
 
-  const input = [
+  const buildInput = (systemText: string) => [
     {
       role: 'developer',
       content: [
         {
           type: 'input_text',
-          text: system,
+          text: systemText,
           prompt_cache_breakpoint: {
             mode: 'explicit',
           },
@@ -463,26 +477,38 @@ async function chatWithOpenAI(
     }),
   ];
 
-  const res = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      input,
-
-      reasoning: {
-        effort: 'medium',
+  const callOpenAI = (withSearch: boolean) =>
+    fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
       },
+      body: JSON.stringify({
+        model,
+        input: buildInput(withSearch ? system + WEB_SEARCH_NOTE : system),
 
-      prompt_cache_options: {
-        mode: 'explicit',
-        ttl: '30m',
-      },
-    }),
-  });
+        ...(withSearch ? { tools: [{ type: 'web_search' }] } : {}),
+
+        reasoning: {
+          effort: 'medium',
+        },
+
+        prompt_cache_options: {
+          mode: 'explicit',
+          ttl: '30m',
+        },
+      }),
+    });
+
+  let res = await callOpenAI(webSearch);
+
+  // If the search request is rejected, retry once without search so chat keeps working.
+  if (!res.ok && webSearch) {
+    const errText = await res.text();
+    console.error('OpenAI chat with web search failed, retrying without it:', errText);
+    res = await callOpenAI(false);
+  }
 
   if (!res.ok) {
     const errText = await res.text();
