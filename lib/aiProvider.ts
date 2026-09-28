@@ -444,6 +444,19 @@ async function chatWithOpenAI(
       ],
     },
     ...history.map((turn) => {
+      // Earlier assistant replies must be sent as output_text, not input_text.
+      if (turn.role === 'assistant') {
+        return {
+          role: 'assistant',
+          content: [
+            {
+              type: 'output_text',
+              text: turn.content,
+            },
+          ],
+        };
+      }
+
       const content: any[] = [];
 
       if (turn.attachment) {
@@ -471,7 +484,7 @@ async function chatWithOpenAI(
       });
 
       return {
-        role: turn.role,
+        role: 'user',
         content,
       };
     }),
