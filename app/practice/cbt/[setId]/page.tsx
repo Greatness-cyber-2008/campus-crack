@@ -22,9 +22,12 @@ export default function CbtPracticePage({ params }: { params: Promise<{ setId: s
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submittedRef = useRef(false);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || initializedRef.current) return;
+    initializedRef.current = true;
+
     (async () => {
       const { data: qsetData } = await supabase
         .from('question_sets')
@@ -50,7 +53,8 @@ export default function CbtPracticePage({ params }: { params: Promise<{ setId: s
         setSecondsLeft(qsetData.time_limit_minutes * 60);
       }
     })();
-  }, [user, setId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, setId]);
 
   useEffect(() => {
     if (secondsLeft === null) return;
