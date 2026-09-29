@@ -507,7 +507,7 @@ function ChatContent({ materialId }: { materialId: string }) {
               <p className="text-gold text-sm font-semibold">\U0001F3AF Let&apos;s fix this question</p>
               <button
                 onClick={() => router.push(`/results/${remediationAttemptId}`)}
-                className="text-slate hover:text-gold text-xs"
+                className="text-slate hover:text-gold text-sm py-1 px-2 -mr-2"
               >
                 \u2190 Back to Results
               </button>
