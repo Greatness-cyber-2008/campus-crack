@@ -108,6 +108,15 @@ export default function ResultsPage({ params }: { params: Promise<{ attemptId: s
                     <p className="text-sm">Self-rating: <span className="text-gold capitalize">{a.self_rating?.replace('_', ' ')}</span></p>
                   </>
                 )}
+
+                {materialId && (examMode === 'cbt' ? !a.is_correct : a.self_rating !== 'nailed_it') && (
+                  <Link
+                    href={`/chat/${materialId}?remediationQuestionId=${q.id}&remediationAttemptId=${attemptId}`}
+                    className="inline-block mt-4 text-sm border border-gold/40 text-gold px-4 py-2 rounded-full hover:bg-gold/10 transition"
+                  >
+                    \U0001F4AC Ask Study Tutor
+                  </Link>
+                )}
               </div>
             );
           })}

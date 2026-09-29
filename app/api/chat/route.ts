@@ -37,7 +37,8 @@ function buildMaterialSystemPrompt(
   materialText: string,
   courseCode: string | null,
   discipline: string | null,
-  currentWeekContext: string | null
+  currentWeekContext: string | null,
+  remediationContext: string | null = null
 ) {
   return `You are a patient, encouraging study tutor helping a Nigerian university student understand
 their own course material inside an app called CampusCrack. ${courseCode ? `The course is ${courseCode}. ` : ''}${
@@ -50,7 +51,7 @@ asks something the material doesn't cover, say so honestly before answering from
 so they know when they're outside their own notes. If they share a photo or file in this chat, read
 it and help with exactly what they're asking. Keep answers conversational and not overly long - this
 is a chat, not an essay.
-${currentWeekContext ? `\n${currentWeekContext}\n` : ''}
+${currentWeekContext ? `\n${currentWeekContext}\n` : ''}${remediationContext ? `\n${remediationContext}\n` : ''}
 ${NO_MARKDOWN_INSTRUCTION}
 
 STUDY MATERIAL:
@@ -69,17 +70,80 @@ function getCurrentWeekNumber(startDate: string): number {
   return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
 }
 
+async function buildRemediationContext(
+  supa: ReturnType<typeof supabaseServer>,
+  userId: string,
+  materialId: string,
+  questionId: string,
+  attemptId: string
+): Promise<string | null> {
+  const { data: attempt } = await supa
+    .from('attempts')
+    .select('id, user_id, question_set_id')
+    .eq('id', attemptId)
+    .single();
+  if (!attempt || attempt.user_id !== userId) return null;
+
+  const { data: qset } = await supa
+    .from('question_sets')
+    .select('id, material_id, exam_mode')
+    .eq('id', attempt.question_set_id)
+    .single();
+  if (!qset || qset.material_id !== materialId) return null;
+
+  const { data: q } = await supa
+    .from('questions')
+    .select('prompt, options, correct_option, explanation, model_answer, marking_points, topic, question_set_id')
+    .eq('id', questionId)
+    .single();
+  if (!q || q.question_set_id !== attempt.question_set_id) return null;
+
+  const { data: a } = await supa
+    .from('answers')
+    .select('selected_option, is_correct, self_rating, written_response')
+    .eq('attempt_id', attemptId)
+    .eq('question_id', questionId)
+    .maybeSingle();
+
+  let details = `Question: ${q.prompt}\n`;
+  if (q.topic) details += `Topic: ${q.topic}\n`;
+
+  if (qset.exam_mode === 'cbt') {
+    const options: { key: string; text: string }[] = q.options || [];
+    details += `Options:\n${options.map((o) => `${o.key}) ${o.text}`).join('\n')}\n`;
+    const chosen = options.find((o) => o.key === a?.selected_option);
+    const correct = options.find((o) => o.key === q.correct_option);
+    details += chosen
+      ? `The student chose: ${chosen.key}) ${chosen.text}\n`
+      : `The student did not answer this question.\n`;
+    if (correct) details += `The correct answer: ${correct.key}) ${correct.text}\n`;
+    if (q.explanation) details += `Explanation already shown to the student: ${q.explanation}\n`;
+  } else {
+    details += `The student wrote: ${a?.written_response || '(nothing)'}\n`;
+    if (q.model_answer) details += `Model answer: ${q.model_answer}\n`;
+    if (q.marking_points?.length) details += `Marking points: ${q.marking_points.join('; ')}\n`;
+    if (a?.self_rating) details += `The student rated their own answer: ${a.self_rating.replace('_', ' ')}\n`;
+  }
+
+  return `REMEDIATION CONTEXT \u2014 the student opened this chat from their Results screen because they want help with one specific question they got wrong or only partly right:
+
+${details}
+How to respond: explain the underlying concept AND the most likely misconception that led to this mistake \u2014 do not just restate which option was correct. Base your explanation on the study material below wherever it covers this topic. If the material does not clearly cover it, say so plainly instead of guessing or inventing a source. Keep it short enough to read comfortably on a phone.`;
+}
+
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const { materialId, message, attachment, requestId } = (await req.json()) as {
+  const { materialId, message, attachment, requestId, remediationQuestionId, remediationAttemptId } = (await req.json()) as {
     materialId?: string | null;
     message: string;
     attachment?: ChatAttachment;
     requestId?: string;
+    remediationQuestionId?: string;
+    remediationAttemptId?: string;
   };
 
   const isGeneral = !materialId || materialId === 'general';
@@ -194,9 +258,14 @@ export async function POST(req: Request) {
   const userMessageText = message?.trim() || (attachment ? '(shared a file)' : '');
   history.push({ role: 'user', content: userMessageText, attachment });
 
+  let remediationContext: string | null = null;
+  if (!isGeneral && remediationQuestionId && remediationAttemptId) {
+    remediationContext = await buildRemediationContext(supa, user.id, materialId as string, remediationQuestionId, remediationAttemptId);
+  }
+
   const basePrompt = isGeneral
     ? GENERAL_TUTOR_SYSTEM_PROMPT
-    : buildMaterialSystemPrompt(material!.extracted_text, material!.course_code, material!.discipline, currentWeekContext);
+    : buildMaterialSystemPrompt(material!.extracted_text, material!.course_code, material!.discipline, currentWeekContext, remediationContext);
   const system = `${getDateContext()}\n\n${basePrompt}`;
 
   let reply: string;

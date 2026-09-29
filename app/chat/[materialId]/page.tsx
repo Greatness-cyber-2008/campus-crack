@@ -71,6 +71,9 @@ function ChatContent({ materialId }: { materialId: string }) {
 
   const isGeneral = materialId === 'general';
   const autoAsk = searchParams.get('autoAsk');
+  const remediationQuestionId = searchParams.get('remediationQuestionId');
+  const remediationAttemptId = searchParams.get('remediationAttemptId');
+  const isRemediation = !!(remediationQuestionId && remediationAttemptId);
 
   const [material, setMaterial] = useState<MaterialInfo | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -84,6 +87,8 @@ function ChatContent({ materialId }: { materialId: string }) {
   const [speakingId, setSpeakingId] = useState<string | null>(null);
 
   const autoAskFiredRef = useRef(false);
+  const remediationOpenedLoggedRef = useRef(false);
+  const [remediationResolved, setRemediationResolved] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
@@ -175,6 +180,24 @@ function ChatContent({ materialId }: { materialId: string }) {
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, autoAsk]);
+
+  useEffect(() => {
+    if (!loading && isRemediation && !autoAsk && !autoAskFiredRef.current) {
+      autoAskFiredRef.current = true;
+      sendMessage('I got this question wrong. Help me understand it.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, isRemediation, autoAsk]);
+
+  useEffect(() => {
+    if (!user || !isRemediation || remediationOpenedLoggedRef.current) return;
+    remediationOpenedLoggedRef.current = true;
+    supabase.from('analytics_events').insert({
+      user_id: user.id,
+      event_name: 'tutor_opened_from_result',
+      properties: { question_id: remediationQuestionId, attempt_id: remediationAttemptId, material_id: materialId },
+    });
+  }, [user, isRemediation, remediationQuestionId, remediationAttemptId, materialId]);
 
   function toggleVoiceInput() {
     const SpeechRecognition =
@@ -305,6 +328,8 @@ function ChatContent({ materialId }: { materialId: string }) {
           materialId: isGeneral ? 'general' : materialId,
           message: trimmed,
           requestId,
+          remediationQuestionId: remediationQuestionId || undefined,
+          remediationAttemptId: remediationAttemptId || undefined,
           attachment: withAttachment
             ? {
                 mimeType: withAttachment.mimeType,
@@ -403,6 +428,16 @@ function ChatContent({ materialId }: { materialId: string }) {
     setShouldAutoScroll(true);
   }
 
+  function markRemediationResolved() {
+    if (!user || !isRemediation || remediationResolved) return;
+    setRemediationResolved(true);
+    supabase.from('analytics_events').insert({
+      user_id: user.id,
+      event_name: 'remediation_completed',
+      properties: { question_id: remediationQuestionId, attempt_id: remediationAttemptId, material_id: materialId },
+    });
+  }
+
   async function handleSend() {
     const trimmed = input.trim();
 
@@ -464,6 +499,52 @@ function ChatContent({ materialId }: { materialId: string }) {
           🔊 {autoSpeak ? 'On' : 'Off'}
         </button>
       </header>
+
+      {isRemediation && (
+        <div className="px-4 sm:px-6 md:px-12 py-3 border-b border-gold/20 bg-gold/5">
+          <div className="max-w-2xl mx-auto">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="text-gold text-sm font-semibold">\U0001F3AF Let&apos;s fix this question</p>
+              <button
+                onClick={() => router.push(`/results/${remediationAttemptId}`)}
+                className="text-slate hover:text-gold text-xs"
+              >
+                \u2190 Back to Results
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => sendMessage('Explain this question again in simpler terms.')}
+                disabled={sending}
+                className="text-xs border border-white/10 px-3 py-1.5 rounded-full hover:border-gold/40 transition disabled:opacity-50"
+              >
+                Explain simpler
+              </button>
+              <button
+                onClick={() => sendMessage('Give me a real-life example that makes this concept clear.')}
+                disabled={sending}
+                className="text-xs border border-white/10 px-3 py-1.5 rounded-full hover:border-gold/40 transition disabled:opacity-50"
+              >
+                Give an example
+              </button>
+              <button
+                onClick={() => sendMessage('Give me 3 similar practice questions on this concept. Let me try them before you show the answers.')}
+                disabled={sending}
+                className="text-xs border border-white/10 px-3 py-1.5 rounded-full hover:border-gold/40 transition disabled:opacity-50"
+              >
+                Give 3 similar questions
+              </button>
+              <button
+                onClick={markRemediationResolved}
+                disabled={remediationResolved}
+                className="text-xs border border-gold/40 text-gold px-3 py-1.5 rounded-full hover:bg-gold/10 transition disabled:opacity-60"
+              >
+                {remediationResolved ? '\u2705 Marked understood' : '\u2705 I understand now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div
         ref={scrollRef}
