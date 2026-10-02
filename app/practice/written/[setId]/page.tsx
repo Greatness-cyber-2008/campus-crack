@@ -1,14 +1,12 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 
-interface Question { id: string; order_index: number; prompt: string; model_answer: string; marking_points: string[]; }
+interface Question { id: string; order_index: number; prompt: string; }
 interface QSet { id: string; title: string; }
-
-const RATING_MARKS: Record<string, number> = { nailed_it: 1, close: 0.5, missed: 0 };
 
 export default function WrittenPracticePage({ params }: { params: Promise<{ setId: string }> }) {
   const { setId } = use(params);
@@ -19,18 +17,20 @@ export default function WrittenPracticePage({ params }: { params: Promise<{ setI
   const [questions, setQuestions] = useState<Question[]>([]);
   const [current, setCurrent] = useState(0);
   const [responses, setResponses] = useState<Record<string, string>>({});
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
-  const [ratings, setRatings] = useState<Record<string, string>>({});
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || initializedRef.current) return;
+    initializedRef.current = true;
+
     (async () => {
       const { data: qsetData } = await supabase.from('question_sets').select('id, title').eq('id', setId).single();
       const { data: questionsData } = await supabase
         .from('questions')
-        .select('id, order_index, prompt, model_answer, marking_points')
+        .select('id, order_index, prompt')
         .eq('question_set_id', setId)
         .order('order_index');
       const { data: attempt } = await supabase
@@ -43,36 +43,35 @@ export default function WrittenPracticePage({ params }: { params: Promise<{ setI
       setQuestions(questionsData || []);
       setAttemptId(attempt?.id || null);
     })();
-  }, [user, setId]);
-
-  function rateAnswer(questionId: string, rating: string) {
-    setRatings((prev) => ({ ...prev, [questionId]: rating }));
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, setId]);
 
   async function handleSubmit() {
-    if (!attemptId) return;
+    if (!attemptId || submitting) return;
     setSubmitting(true);
+    setError(null);
 
-    let marksScored = 0;
-    const totalMarks = questions.length;
+    try {
+      const res = await fetch('/api/grade-written', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attemptId,
+          answers: questions.map((q) => ({ questionId: q.id, response: responses[q.id] || '' })),
+        }),
+      });
 
-    const answerRows = questions.map((q) => {
-      const rating = ratings[q.id] || 'missed';
-      const marks = RATING_MARKS[rating] ?? 0;
-      marksScored += marks;
-      return { attempt_id: attemptId, question_id: q.id, written_response: responses[q.id] || '', self_rating: rating, marks_awarded: marks };
-    });
+      if (!res.ok) {
+        setSubmitting(false);
+        setError('Could not grade your exam, please try again.');
+        return;
+      }
 
-    await supabase.from('answers').insert(answerRows);
-
-    const score = totalMarks > 0 ? Math.round((marksScored / totalMarks) * 100) : 0;
-
-    await supabase
-      .from('attempts')
-      .update({ submitted_at: new Date().toISOString(), status: 'submitted', score, total_marks: totalMarks, marks_scored: marksScored })
-      .eq('id', attemptId);
-
-    router.push(`/results/${attemptId}`);
+      router.push(`/results/${attemptId}`);
+    } catch (err) {
+      setSubmitting(false);
+      setError('Could not grade your exam, please try again.');
+    }
   }
 
   if (!qset || questions.length === 0) {
@@ -84,14 +83,13 @@ export default function WrittenPracticePage({ params }: { params: Promise<{ setI
   }
 
   const q = questions[current];
-  const isRevealed = revealed[q.id];
-  const allRated = questions.every((qq) => ratings[qq.id]);
+  const answeredCount = Object.values(responses).filter((r) => r.trim()).length;
 
   return (
     <main className="min-h-screen bg-ink text-paper flex flex-col">
       <header className="px-4 sm:px-6 md:px-12 py-4 sm:py-5 border-b border-white/10">
         <p className="font-semibold text-sm sm:text-base truncate">{qset.title}</p>
-        <p className="text-slate text-xs">Question {current + 1} of {questions.length}</p>
+        <p className="text-slate text-xs">Question {current + 1} of {questions.length} · {answeredCount} written</p>
       </header>
 
       <div className="flex-1 px-4 sm:px-6 md:px-12 py-6 sm:py-10 max-w-2xl mx-auto w-full">
@@ -100,40 +98,19 @@ export default function WrittenPracticePage({ params }: { params: Promise<{ setI
         <textarea
           value={responses[q.id] || ''}
           onChange={(e) => setResponses((prev) => ({ ...prev, [q.id]: e.target.value }))}
-          disabled={isRevealed}
-          rows={7}
+          rows={10}
           placeholder="Write your answer as you would in the exam…"
-          className="w-full bg-inkLight border border-white/10 rounded-xl px-4 py-3 text-base focus:border-gold outline-none mb-4 disabled:opacity-70"
+          className="w-full bg-inkLight border border-white/10 rounded-xl px-4 py-3 text-base focus:border-gold outline-none"
         />
 
-        {!isRevealed ? (
-          <button onClick={() => setRevealed((prev) => ({ ...prev, [q.id]: true }))} className="w-full sm:w-auto bg-inkLight border border-white/10 px-5 py-3 rounded-full hover:border-gold/40 transition text-sm">
-            Reveal model answer & marking points
-          </button>
-        ) : (
-          <div className="border border-gold/30 bg-gold/5 rounded-xl p-4 sm:p-5 space-y-4">
-            <div>
-              <p className="text-gold text-xs uppercase tracking-wide mb-2">Model answer</p>
-              <p className="text-paper text-sm leading-relaxed whitespace-pre-wrap">{q.model_answer}</p>
-            </div>
-            <div>
-              <p className="text-gold text-xs uppercase tracking-wide mb-2">Marking points to hit</p>
-              <ul className="list-disc list-inside text-sm text-slate space-y-1">
-                {(q.marking_points || []).map((point, i) => (<li key={i}>{point}</li>))}
-              </ul>
-            </div>
-            <div>
-              <p className="text-slate text-xs mb-2">Be honest — how did you do?</p>
-              <div className="grid grid-cols-3 gap-2">
-                {[{ key: 'nailed_it', label: 'Nailed it' }, { key: 'close', label: 'Close' }, { key: 'missed', label: 'Missed it' }].map((opt) => (
-                  <button key={opt.key} onClick={() => rateAnswer(q.id, opt.key)} className={`px-2 sm:px-4 py-2.5 rounded-full text-xs sm:text-sm border transition ${ratings[q.id] === opt.key ? 'border-gold bg-gold/20' : 'border-white/10'}`}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+        {current === questions.length - 1 && answeredCount < questions.length && (
+          <p className="text-slate text-xs mt-3">
+            You have {questions.length - answeredCount} question(s) left unanswered. You can still submit, but
+            unanswered questions will be graded as 0%.
+          </p>
         )}
+
+        {error && <p className="text-stamp text-sm mt-3">{error}</p>}
       </div>
 
       <footer className="flex items-center justify-between gap-3 px-4 sm:px-6 md:px-12 py-4 sm:py-5 border-t border-white/10">
@@ -145,8 +122,8 @@ export default function WrittenPracticePage({ params }: { params: Promise<{ setI
             Next →
           </button>
         ) : (
-          <button onClick={handleSubmit} disabled={submitting || !allRated} className="bg-stamp px-5 sm:px-6 py-3 rounded-full font-semibold hover:brightness-110 transition disabled:opacity-60 text-sm sm:text-base" title={!allRated ? 'Rate every question first' : ''}>
-            {submitting ? 'Submitting…' : 'Finish & see results'}
+          <button onClick={handleSubmit} disabled={submitting} className="bg-stamp px-5 sm:px-6 py-3 rounded-full font-semibold hover:brightness-110 transition disabled:opacity-60 text-sm sm:text-base">
+            {submitting ? 'Grading your exam…' : 'Submit & grade exam'}
           </button>
         )}
       </footer>

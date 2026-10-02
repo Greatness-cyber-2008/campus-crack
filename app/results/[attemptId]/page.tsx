@@ -7,8 +7,18 @@ import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
 
 interface AttemptDetail { id: string; score: number; marks_scored: number; total_marks: number; question_set_id: string; }
-interface AnswerRow { id: string; question_id: string; selected_option: string | null; is_correct: boolean | null; self_rating: string | null; written_response: string | null; }
-interface QuestionRow { id: string; prompt: string; options: { key: string; text: string }[] | null; correct_option: string | null; explanation: string | null; model_answer: string | null; }
+interface AnswerRow {
+  id: string;
+  question_id: string;
+  selected_option: string | null;
+  is_correct: boolean | null;
+  written_response: string | null;
+  marks_awarded: number | null;
+  ai_feedback: string | null;
+  points_covered: string[] | null;
+  points_missed: string[] | null;
+}
+interface QuestionRow { id: string; prompt: string; options: { key: string; text: string }[] | null; correct_option: string | null; explanation: string | null; }
 
 function verdict(score: number) {
   if (score >= 80) return { label: 'CRACKED', tone: 'stamp-gold' };
@@ -44,12 +54,12 @@ export default function ResultsPage({ params }: { params: Promise<{ attemptId: s
 
       const { data: answerData } = await supabase
         .from('answers')
-        .select('id, question_id, selected_option, is_correct, self_rating, written_response')
+        .select('id, question_id, selected_option, is_correct, written_response, marks_awarded, ai_feedback, points_covered, points_missed')
         .eq('attempt_id', attemptId);
 
       const { data: questionData } = await supabase
         .from('questions')
-        .select('id, prompt, options, correct_option, explanation, model_answer')
+        .select('id, prompt, options, correct_option, explanation')
         .eq('question_set_id', attemptData.question_set_id);
 
       const qMap: Record<string, QuestionRow> = {};
@@ -83,15 +93,30 @@ export default function ResultsPage({ params }: { params: Promise<{ attemptId: s
             <span className="text-[9px] sm:text-[10px] mt-2 tracking-widest">{v.label}</span>
           </div>
         </div>
-        <p className="text-slate mb-10">You scored {attempt.marks_scored} / {attempt.total_marks} marks</p>
+        <p className="text-slate mb-2">You scored {attempt.marks_scored.toFixed(1)} / {attempt.total_marks} marks</p>
+        {examMode === 'written' && (
+          <p className="text-slate text-xs mb-10 max-w-md mx-auto">
+            This is an estimate of how you'd likely perform if you wrote these exact answers in the real exam.
+            Your actual lecturer's grading may differ.
+          </p>
+        )}
+        {examMode === 'cbt' && <div className="mb-10" />}
 
         <div className="text-left space-y-4">
           {answers.map((a, i) => {
             const q = questions[a.question_id];
             if (!q) return null;
+            const percentage = a.marks_awarded !== null ? Math.round(a.marks_awarded * 100) : null;
+            const needsWork = examMode === 'cbt' ? !a.is_correct : (percentage ?? 0) < 80;
+
             return (
               <div key={a.id} className={`border rounded-xl p-5 ${examMode === 'cbt' ? (a.is_correct ? 'border-gold/30 bg-gold/5' : 'border-stamp/40 bg-stamp/5') : 'border-white/10'}`}>
-                <p className="text-sm text-slate mb-2">Question {i + 1}</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-slate">Question {i + 1}</p>
+                  {examMode === 'written' && percentage !== null && (
+                    <p className={`text-sm font-mono ${percentage >= 80 ? 'text-gold' : 'text-stamp'}`}>{percentage}%</p>
+                  )}
+                </div>
                 <p className="mb-3 leading-relaxed">{q.prompt}</p>
                 {examMode === 'cbt' ? (
                   <>
@@ -105,16 +130,37 @@ export default function ResultsPage({ params }: { params: Promise<{ attemptId: s
                   <>
                     <p className="text-sm text-slate mb-1">Your response:</p>
                     <p className="text-sm mb-3 whitespace-pre-wrap">{a.written_response || '(no response)'}</p>
-                    <p className="text-sm">Self-rating: <span className="text-gold capitalize">{a.self_rating?.replace('_', ' ')}</span></p>
+
+                    {a.ai_feedback && (
+                      <p className="text-sm mb-3">{a.ai_feedback}</p>
+                    )}
+
+                    {a.points_covered && a.points_covered.length > 0 && (
+                      <div className="mb-2">
+                        <p className="text-gold text-xs uppercase tracking-wide mb-1">Covered</p>
+                        <ul className="list-disc list-inside text-sm text-slate space-y-1">
+                          {a.points_covered.map((p, idx) => (<li key={idx}>{p}</li>))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {a.points_missed && a.points_missed.length > 0 && (
+                      <div>
+                        <p className="text-stamp text-xs uppercase tracking-wide mb-1">Missed</p>
+                        <ul className="list-disc list-inside text-sm text-slate space-y-1">
+                          {a.points_missed.map((p, idx) => (<li key={idx}>{p}</li>))}
+                        </ul>
+                      </div>
+                    )}
                   </>
                 )}
 
-                {materialId && (examMode === 'cbt' ? !a.is_correct : a.self_rating !== 'nailed_it') && (
+                {materialId && needsWork && (
                   <Link
                     href={`/chat/${materialId}?remediationQuestionId=${q.id}&remediationAttemptId=${attemptId}`}
                     className="inline-block mt-4 text-sm border border-gold/40 text-gold px-4 py-2 rounded-full hover:bg-gold/10 transition"
                   >
-                    \U0001F4AC Ask Study Tutor
+                    💬 Ask Study Tutor
                   </Link>
                 )}
               </div>
