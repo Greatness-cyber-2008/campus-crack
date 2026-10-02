@@ -46,15 +46,27 @@ export default function WrittenPracticePage({ params }: { params: Promise<{ setI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, setId]);
 
-  async function handleSubmit() {
+   async function handleSubmit() {
     if (!attemptId || submitting) return;
     setSubmitting(true);
     setError(null);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      if (!token) {
+        setSubmitting(false);
+        setError('Your session expired, please refresh the page and try again.');
+        return;
+      }
+
       const res = await fetch('/api/grade-written', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           attemptId,
           answers: questions.map((q) => ({ questionId: q.id, response: responses[q.id] || '' })),
@@ -73,8 +85,7 @@ export default function WrittenPracticePage({ params }: { params: Promise<{ setI
       setError('Could not grade your exam, please try again.');
     }
   }
-
-  if (!qset || questions.length === 0) {
+    if (!qset || questions.length === 0) {
     return (
       <main className="min-h-screen bg-ink text-paper flex items-center justify-center">
         <p className="text-slate">Loading your practice set…</p>
