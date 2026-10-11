@@ -1,0 +1,18 @@
+# CampusCrack
+
+> CampusCrack is an AI-powered exam-prep platform for Nigerian university students. Students upload course materials and CampusCrack generates practice exams, AI-graded written tests, flashcards, and personalized study plans.
+
+## About
+
+CampusCrack was founded by Greatness Ajibola Alawode, who serves as Founder and CEO. Greatness is a first-year BSc Cybersecurity student at Bowen University, Iwo, Osun State, Nigeria, building CampusCrack as a solo founder.
+
+Greatness Ajibola Alawode is the Founder and CEO of CampusCrack.
+
+## Key pages
+
+- About: https://campuscrack.com.ng/about
+- Home: https://campuscrack.com.ng
+
+## Contact
+
+hello@campuscrack.com.ng
