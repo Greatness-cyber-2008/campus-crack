@@ -10,11 +10,8 @@ export const metadata = {
     'CampusCrack is a Nigerian exam-prep platform founded by Greatness Ajibola Alawode, who serves as Founder and CEO.',
 };
 
-// TODO (Gboy): fill these in with your real profile URLs before shipping —
-// leave empty strings out, every entry here should be a working link.
 const FOUNDER_SOCIAL_LINKS: string[] = [
-  // 'https://www.linkedin.com/in/your-handle',
-  // 'https://x.com/your-handle',
+  'https://www.linkedin.com/in/greatness-alawode-1071b62bb',
 ];
 
 export default function AboutPage() {
@@ -81,8 +78,8 @@ export default function AboutPage() {
           <p className="text-slate leading-relaxed mb-4">
             CampusCrack was founded by{' '}
             <strong className="text-paper">Greatness Ajibola Alawode</strong>, who serves as{' '}
-            <strong className="text-paper">Founder and CEO</strong>. Greatness is a first-year BSc
-            Cybersecurity student at Bowen University, Iwo, Osun State, Nigeria, who built
+            <strong className="text-paper">Founder and CEO</strong>. Greatness is a Cybersecurity student at Bowen University, 
+            Iwo, Osun State, Nigeria, who built
             CampusCrack to solve a problem he saw first-hand: Nigerian students often revise from
             scattered, unstructured materials with no fast way to turn them into practice.
           </p>
@@ -95,9 +92,8 @@ export default function AboutPage() {
           <h2 className="text-lg font-semibold mb-3 text-gold">Contact</h2>
           <p className="text-slate leading-relaxed">
             For partnerships, press, or support, reach the CampusCrack team at{' '}
-            {/* TODO (Gboy): replace with your real support/contact email before shipping */}
-            <a href="mailto:hello@campuscrack.com.ng" className="text-gold hover:underline">
-              hello@campuscrack.com.ng
+            <a href="mailto:greatnessajibola@gmail.com" className="text-gold hover:underline">
+              greatnessajibola@gmail.com
             </a>
             .
           </p>
