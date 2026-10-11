@@ -4,7 +4,7 @@
 
 ## About
 
-CampusCrack was founded by Greatness Ajibola Alawode, who serves as Founder and CEO. Greatness is a first-year BSc Cybersecurity student at Bowen University, Iwo, Osun State, Nigeria, building CampusCrack as a solo founder.
+CampusCrack was founded by Greatness Ajibola Alawode, who serves as Founder and CEO. Greatness is a Cybersecurity student at Bowen University, Iwo, Osun State, Nigeria, building CampusCrack as a solo founder.
 
 Greatness Ajibola Alawode is the Founder and CEO of CampusCrack.
 
@@ -15,4 +15,4 @@ Greatness Ajibola Alawode is the Founder and CEO of CampusCrack.
 
 ## Contact
 
-hello@campuscrack.com.ng
+greatnessajibola@gmail.com
