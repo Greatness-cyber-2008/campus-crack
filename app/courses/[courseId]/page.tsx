@@ -17,6 +17,18 @@ interface MaterialRow {
   title: string;
   status: string;
   created_at: string;
+  storage_path: string;
+}
+
+// A material stuck on "processing" past this long almost certainly means the
+// extraction request died server-side (crashed, or hit a hosting time limit)
+// without ever reporting back — so we stop showing it as "in progress" and
+// let the student clear it out instead of waiting on something that will
+// never finish.
+const STUCK_AFTER_MS = 5 * 60 * 1000;
+
+function isStuck(m: MaterialRow) {
+  return m.status === 'processing' && Date.now() - new Date(m.created_at).getTime() > STUCK_AFTER_MS;
 }
 
 export default function CourseDetailPage({ params }: { params: Promise<{ courseId: string }> }) {
@@ -25,6 +37,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ courseI
   const [course, setCourse] = useState<CourseInfo | null>(null);
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -37,7 +50,7 @@ export default function CourseDetailPage({ params }: { params: Promise<{ courseI
 
       const { data: materialsData } = await supabase
         .from('materials')
-        .select('id, title, status, created_at')
+        .select('id, title, status, created_at, storage_path')
         .eq('course_id', courseId)
         .order('created_at', { ascending: false });
 
@@ -46,6 +59,28 @@ export default function CourseDetailPage({ params }: { params: Promise<{ courseI
       setLoading(false);
     })();
   }, [user, courseId]);
+
+  async function handleDelete(m: MaterialRow) {
+    if (!confirm(`Delete "${m.title}"? This can't be undone.`)) return;
+    setDeletingId(m.id);
+
+    // Best-effort storage cleanup — if this fails (e.g. file already gone)
+    // we still remove the database row so the student isn't stuck with a
+    // ghost entry they can't get rid of.
+    if (m.storage_path) {
+      await supabase.storage.from('materials').remove([m.storage_path]);
+    }
+    const { error } = await supabase.from('materials').delete().eq('id', m.id);
+
+    if (error) {
+      alert('Could not delete this file — please try again.');
+      setDeletingId(null);
+      return;
+    }
+
+    setMaterials((prev) => prev.filter((x) => x.id !== m.id));
+    setDeletingId(null);
+  }
 
   if (loading) {
     return (
@@ -98,28 +133,36 @@ export default function CourseDetailPage({ params }: { params: Promise<{ courseI
           <p className="text-slate text-sm">No files uploaded to this course yet.</p>
         ) : (
           <div className="space-y-2">
-            {materials.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center justify-between border border-white/10 rounded-xl px-4 py-3"
-              >
-                <p className="text-sm truncate mr-3">{m.title}</p>
-                <div className="flex items-center gap-3 shrink-0">
-                  {m.status === 'ready' && (
-                    <Link href={`/chat/${m.id}`} className="text-gold text-xs hover:underline">
-                      💬 Chat
-                    </Link>
-                  )}
-                  <span
-                    className={`text-xs ${
-                      m.status === 'ready' ? 'text-gold' : m.status === 'failed' ? 'text-stamp' : 'text-slate'
-                    }`}
-                  >
-                    {m.status === 'ready' ? 'Ready ✓' : m.status === 'failed' ? 'Failed' : 'Processing…'}
-                  </span>
+            {materials.map((m) => {
+              const stuck = isStuck(m);
+              const label = m.status === 'ready' ? 'Ready ✓' : m.status === 'failed' ? 'Failed' : stuck ? 'Failed to process' : 'Processing…';
+              const labelClass = m.status === 'ready' ? 'text-gold' : m.status === 'failed' || stuck ? 'text-stamp' : 'text-slate';
+
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between border border-white/10 rounded-xl px-4 py-3"
+                >
+                  <p className="text-sm truncate mr-3">{m.title}</p>
+                  <div className="flex items-center gap-3 shrink-0">
+                    {m.status === 'ready' && (
+                      <Link href={`/chat/${m.id}`} className="text-gold text-xs hover:underline">
+                        💬 Chat
+                      </Link>
+                    )}
+                    <span className={`text-xs ${labelClass}`}>{label}</span>
+                    <button
+                      onClick={() => handleDelete(m)}
+                      disabled={deletingId === m.id}
+                      aria-label={`Delete ${m.title}`}
+                      className="text-slate hover:text-stamp transition disabled:opacity-50 text-xs"
+                    >
+                      {deletingId === m.id ? '…' : '🗑️'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
