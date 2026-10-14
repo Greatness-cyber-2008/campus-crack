@@ -17,6 +17,7 @@ export default function AppNav({ active }: { active?: string }) {
   const links = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/upload', label: 'Upload' },
+    { href: '/chat/general', label: 'Tutor' },
     { href: '/flashcards', label: 'Flashcards' },
     { href: '/courses', label: 'Courses' },
     { href: '/planner', label: 'Planner' },

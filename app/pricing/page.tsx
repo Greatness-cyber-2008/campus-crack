@@ -3,9 +3,10 @@
 import Script from 'next/script';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useUser, getAuthHeader } from '@/lib/useUser';
+import { useOptionalUser, getAuthHeader } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
+import PublicNav from '@/components/PublicNav';
 
 declare global {
   interface Window {
@@ -31,7 +32,7 @@ export default function PricingPage() {
 }
 
 function PricingContent() {
-  const { user } = useUser();
+  const { user } = useOptionalUser();
   const params = useSearchParams();
   const reason = params.get('reason');
   const [loading, setLoading] = useState(false);
@@ -85,7 +86,7 @@ function PricingContent() {
   return (
     <main className="min-h-screen bg-ink text-paper">
       <Script src="https://js.paystack.co/v1/inline.js" strategy="lazyOnload" />
-      <AppNav active="Pricing" />
+      {user ? <AppNav active="Pricing" /> : <PublicNav />}
 
       <div className="px-4 sm:px-6 md:px-12 py-10 sm:py-16 max-w-4xl mx-auto text-center">
         <h1 className="font-display text-3xl md:text-4xl mb-4">SIMPLE, HONEST PRICING</h1>

@@ -62,3 +62,36 @@ select:focus-visible {
   border-color: var(--gold);
   color: var(--gold);
 }
+
+/* Hero load-in — plays once automatically on page load, no JS needed.
+   Kept subtle: a short fade + rise, not a bounce or flashy entrance. */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fadeUp 0.7s ease-out both;
+}
+
+/* Gentle, slow pulse for the logo mark's sparkles — a single deliberate
+   moment of life, not ambient motion everywhere. */
+@keyframes sparklePulse {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+.animate-sparkle {
+  animation: sparklePulse 3.2s ease-in-out infinite;
+}
