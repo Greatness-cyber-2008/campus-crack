@@ -20,7 +20,7 @@ const REASON_COPY: Record<string, string> = {
   limit_reached: "You've used all 3 free generations — unlock full access to keep generating.",
   written_locked: 'Written/theory mode is part of full access.',
   chat_limit_reached: "You've hit today's free chat limit — unlock full access for unlimited chat.",
-  plan_limit_reached: 'Free plan is limited to 1 study plan — unlock full access for unlimited plans across all your courses.',
+  plan_limit_reached:'Free plan is limited to 1 study plan — unlock full access for unlimited plans across all your courses.',
 };
 
 export default function PricingPage() {
@@ -38,30 +38,83 @@ function PricingContent() {
   const [loading, setLoading] = useState(false);
   const [isPremium, setIsPremium] = useState<boolean | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkMsg, setCheckMsg] = useState<string | null>(null);
+
+  async function loadProfile() {
+    if (!user) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('is_premium, premium_expires_at')
+      .eq('id', user.id)
+      .single();
+    setIsPremium(!!data?.is_premium);
+    setExpiresAt(data?.premium_expires_at || null);
+    return !!data?.is_premium;
+  }
+
+  // Re-checks Paystack for any payment this student started but we haven't unlocked yet
+  // (typical after a bank transfer, where they leave the site while paying).
+  async function checkPayment(manual: boolean) {
+    if (!user) return;
+    if (manual) {
+      setChecking(true);
+      setCheckMsg(null);
+    }
+    try {
+      const res = await fetch('/api/paystack/sync', { method: 'POST', headers: await getAuthHeader() });
+      const data = await res.json();
+      if (data?.isPremium) {
+        await loadProfile();
+        if (manual) setCheckMsg('Payment found — your full access is now active. ✓');
+      } else if (manual) {
+        setCheckMsg(
+          data?.checked > 0
+            ? "We can't see a completed payment yet. Bank transfers can take a few minutes — try again shortly."
+            : 'No recent payment found on this account.'
+        );
+      }
+    } catch {
+      if (manual) setCheckMsg('Could not check right now — try again in a moment.');
+    } finally {
+      if (manual) setChecking(false);
+    }
+  }
 
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('is_premium, premium_expires_at')
-        .eq('id', user.id)
-        .single();
-      setIsPremium(!!data?.is_premium);
-      setExpiresAt(data?.premium_expires_at || null);
+      const premium = await loadProfile();
+      if (!premium) checkPayment(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  function handleUpgrade() {
+  async function handleUpgrade() {
     if (!user) return;
     setLoading(true);
+
+    // The server creates the payment reference and saves it against this student first,
+    // so a payment made by bank transfer can still be matched to them after they leave.
+    let reference: string;
+    try {
+      const res = await fetch('/api/paystack/init', { method: 'POST', headers: await getAuthHeader() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'init failed');
+      reference = data.reference;
+    } catch {
+      setLoading(false);
+      setCheckMsg('Could not start the payment. Check your connection and try again.');
+      return;
+    }
 
     const handler = window.PaystackPop.setup({
       key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY,
       email: user.email,
       amount: PREMIUM_PRICE_KOBO,
       currency: 'NGN',
-      ref: `campuscrack_${Date.now()}_${user.id.slice(0, 8)}`,
+      ref: reference,
+      metadata: { user_id: user.id, purpose: 'premium_unlock' },
       callback: (response: any) => {
         (async () => {
           const authHeader = await getAuthHeader();
@@ -167,6 +220,24 @@ function PricingContent() {
             )}
           </div>
         </div>
+
+        {user && !isPremium && (
+          <div className="max-w-2xl mx-auto mt-8 border border-white/10 rounded-xl px-5 py-4 text-left">
+            <p className="text-sm font-semibold mb-1">Already paid?</p>
+            <p className="text-slate text-xs mb-3">
+              If you paid by bank transfer and left this page, your access unlocks automatically — usually within a minute or
+              two. You can also check right now. You never need to pay twice.
+            </p>
+            <button
+              onClick={() => checkPayment(true)}
+              disabled={checking}
+              className="border border-gold/40 text-gold text-sm px-4 py-2 rounded-full hover:bg-gold/10 transition disabled:opacity-60"
+            >
+              {checking ? 'Checking…' : 'Check my payment'}
+            </button>
+            {checkMsg && <p className="text-sm mt-3 text-slate">{checkMsg}</p>}
+          </div>
+        )}
       </div>
     </main>
   );

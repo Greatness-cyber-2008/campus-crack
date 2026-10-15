@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useUser } from '@/lib/useUser';
+import { useUser, getAuthHeader } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
 
@@ -64,6 +64,18 @@ export default function DashboardPage() {
       ]);
       setSets(setsData || []);
       setProfile(profileData as any);
+
+      // Paid by bank transfer and came back later? Re-check Paystack for any unfinished
+      // payment and unlock automatically, so nobody has to wait or pay twice.
+      if (profileData && !(profileData as any).is_premium) {
+        try {
+          const res = await fetch('/api/paystack/sync', { method: 'POST', headers: await getAuthHeader() });
+          const sync = await res.json();
+          if (sync?.isPremium) setProfile((prev) => (prev ? { ...prev, is_premium: true } : prev));
+        } catch {
+          // best-effort — the webhook is the primary path
+        }
+      }
 
       for (const plan of plansData || []) {
         const weekNum = getCurrentWeekNumber(plan.start_date);
