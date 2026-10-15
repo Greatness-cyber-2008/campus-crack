@@ -1,12 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { getSafeNext } from '@/lib/safeNext';
 
 export default function SignupPage() {
   const router = useRouter();
+  // Carries a ?next= (e.g. a shared practice link) through to the login link and the post-signup redirect.
+  const [nextQs, setNextQs] = useState('');
+  useEffect(() => {
+    const n = getSafeNext();
+    if (n) setNextQs(`?next=${encodeURIComponent(n)}`);
+  }, []);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,7 +36,7 @@ export default function SignupPage() {
       setError(error.message);
       return;
     }
-    router.push('/dashboard');
+    router.push(getSafeNext() || '/dashboard');
   }
 
   return (
@@ -41,7 +48,7 @@ export default function SignupPage() {
         <h1 className="text-2xl font-semibold mb-1">Create your account</h1>
         <p className="text-slate mb-8 text-sm">Start with 3 free question sets, no card needed.</p>
 
-        <form onSubmit={handleSignup} className="space-y-4">
+        <form onSubmit={handleSignup} className="space-y-4" autoComplete="off">
           <div>
             <label className="block text-sm text-slate mb-1">Full name</label>
             <input
@@ -50,6 +57,7 @@ export default function SignupPage() {
               onChange={(e) => setFullName(e.target.value)}
               className="w-full bg-inkLight border border-white/10 rounded-lg px-4 py-3 focus:border-gold outline-none"
               placeholder="Adebayo Gboyega"
+              autoComplete="off"
             />
           </div>
           <div>
@@ -61,6 +69,7 @@ export default function SignupPage() {
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-inkLight border border-white/10 rounded-lg px-4 py-3 focus:border-gold outline-none"
               placeholder="you@school.edu.ng"
+              autoComplete="off"
             />
           </div>
           <div>
@@ -73,6 +82,7 @@ export default function SignupPage() {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-inkLight border border-white/10 rounded-lg px-4 py-3 focus:border-gold outline-none"
               placeholder="At least 6 characters"
+              autoComplete="new-password"
             />
           </div>
 
@@ -89,7 +99,7 @@ export default function SignupPage() {
 
         <p className="text-slate text-sm text-center mt-6">
           Already have an account?{' '}
-          <Link href="/login" className="text-gold">
+          <Link href={`/login${nextQs}`} className="text-gold">
             Log in
           </Link>
         </p>

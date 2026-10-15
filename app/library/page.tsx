@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useUser } from '@/lib/useUser';
+import { useUser, getAuthHeader } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
 
@@ -34,6 +34,55 @@ export default function LibraryPage() {
       setLoading(false);
     })();
   }, [user]);
+
+  const [linkState, setLinkState] = useState<Record<string, 'working' | 'copied'>>({});
+
+  // Creates the set's public practice link (first 5 questions free, rest behind
+  // premium) and hands it to the phone's share sheet (WhatsApp etc.), or copies it.
+  async function shareLink(s: QuestionSet) {
+    setLinkState((p) => ({ ...p, [s.id]: 'working' }));
+    try {
+      const authHeader = await getAuthHeader();
+      const res = await fetch('/api/share/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ questionSetId: s.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not create link');
+
+      const url = `${window.location.origin}/s/${data.token}`;
+      const text = `Try this ${s.question_count}-question CBT practice set on CampusCrack`;
+
+      let shared = false;
+      if (typeof navigator.share === 'function') {
+        try {
+          await navigator.share({ title: s.title, text, url });
+          shared = true;
+        } catch {
+          // cancelled or blocked — fall back to copying below
+        }
+      }
+      if (!shared) {
+        try {
+          await navigator.clipboard.writeText(url);
+        } catch {
+          window.prompt('Copy this link', url);
+        }
+      }
+      setLinkState((p) => ({ ...p, [s.id]: 'copied' }));
+      setTimeout(() => setLinkState((p) => {
+        const { [s.id]: _omit, ...rest } = p;
+        return rest;
+      }), 2500);
+    } catch (err: any) {
+      alert(err.message || 'Could not create link');
+      setLinkState((p) => {
+        const { [s.id]: _omit, ...rest } = p;
+        return rest;
+      });
+    }
+  }
 
   async function toggleShare(setId: string, current: boolean) {
     setSets((prev) => prev.map((s) => (s.id === setId ? { ...s, is_public: !current } : s)));
@@ -85,6 +134,15 @@ export default function LibraryPage() {
                   >
                     {s.is_public ? 'Shared ✓' : 'Share with course'}
                   </button>
+                  {s.exam_mode === 'cbt' && (
+                    <button
+                      onClick={() => shareLink(s)}
+                      disabled={linkState[s.id] === 'working'}
+                      className="text-xs px-3 py-2 sm:py-1.5 rounded-full border border-gold/40 text-gold hover:bg-gold/10 transition disabled:opacity-60"
+                    >
+                      {linkState[s.id] === 'working' ? '…' : linkState[s.id] === 'copied' ? 'Link ready ✓' : '🔗 Share link'}
+                    </button>
+                  )}
                   {s.material_id && (
                     <Link href={`/chat/${s.material_id}`} className="text-slate hover:text-gold text-sm py-2 sm:py-0">
                       💬 Chat

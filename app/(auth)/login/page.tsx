@@ -1,14 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { getSafeNext } from '@/lib/safeNext';
 
 const MAX_DEVICES = 2;
 
 export default function LoginPage() {
   const router = useRouter();
+  // Carries a ?next= (e.g. a shared practice link) through to the signup link and the post-login redirect.
+  const [nextQs, setNextQs] = useState('');
+  useEffect(() => {
+    const n = getSafeNext();
+    if (n) setNextQs(`?next=${encodeURIComponent(n)}`);
+  }, []);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -38,12 +45,12 @@ export default function LoginPage() {
         `You're now logged in on this device. Since accounts are limited to ${MAX_DEVICES} devices, your oldest session was signed out.`
       );
       // Give the student a moment to actually read this before moving on
-      setTimeout(() => router.push('/dashboard'), 2500);
+      setTimeout(() => router.push(getSafeNext() || '/dashboard'), 2500);
       return;
     }
 
     setLoading(false);
-    router.push('/dashboard');
+    router.push(getSafeNext() || '/dashboard');
   }
 
   return (
@@ -100,7 +107,7 @@ export default function LoginPage() {
 
         <p className="text-slate text-sm text-center mt-6">
           Don&apos;t have an account?{' '}
-          <Link href="/signup" className="text-gold">
+          <Link href={`/signup${nextQs}`} className="text-gold">
             Sign up free
           </Link>
         </p>

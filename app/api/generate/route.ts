@@ -2,11 +2,15 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { buildGenerationPrompt, Discipline, ExamMode, Difficulty } from '@/lib/promptBuilder';
 import { generateWithAI } from '@/lib/aiProvider';
+import { combineMaterials } from '@/lib/materialText';
 
 export const maxDuration = 60; // AI generation can take a while for big materials
 
 const FREE_GENERATIONS_LIMIT = parseInt(process.env.FREE_GENERATIONS_LIMIT || '3', 10);
 const FREE_MAX_QUESTIONS_PER_SET = parseInt(process.env.FREE_MAX_QUESTIONS_PER_SET || '10', 10);
+// Mixed sets built from several files: total source text across all files, and a sane cap on file count.
+const MAX_COMBINED_CHARS = 120000;
+const MAX_MIXED_FILES = 8;
 
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
@@ -17,6 +21,7 @@ export async function POST(req: Request) {
   const body = await req.json();
   const {
     materialId,
+    materialIds,
     discipline,
     examMode,
     difficulty,
@@ -24,7 +29,8 @@ export async function POST(req: Request) {
     timeLimitMinutes,
     title,
   }: {
-    materialId: string;
+    materialId?: string;
+    materialIds?: string[]; // several files → one mixed set
     discipline: Discipline;
     examMode: ExamMode;
     difficulty: Difficulty;
@@ -33,9 +39,15 @@ export async function POST(req: Request) {
     title: string;
   } = body;
 
-  if (!materialId || !discipline || !examMode || !questionCount) {
+  const requestedIds = Array.from(new Set((materialIds && materialIds.length > 0 ? materialIds : materialId ? [materialId] : []).filter(Boolean)));
+
+  if (requestedIds.length === 0 || !discipline || !examMode || !questionCount) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
+  if (requestedIds.length > MAX_MIXED_FILES) {
+    return NextResponse.json({ error: `Pick up to ${MAX_MIXED_FILES} files for one mixed set.` }, { status: 400 });
+  }
+  const isMixed = requestedIds.length > 1;
 
   const supa = supabaseServer();
 
@@ -73,28 +85,40 @@ export async function POST(req: Request) {
     );
   }
 
-  // ---- Fetch the extracted material text ----
-  const { data: material, error: materialError } = await supa
+  // ---- Fetch the extracted material text (one file, or several combined) ----
+  const { data: materialRows, error: materialError } = await supa
     .from('materials')
-    .select('extracted_text, user_id, course_code')
-    .eq('id', materialId)
-    .single();
+    .select('id, title, extracted_text, user_id, course_code')
+    .in('id', requestedIds);
 
-  if (materialError || !material || material.user_id !== user.id) {
+  const materials = (materialRows || []).filter((m) => m.user_id === user.id);
+  if (materialError || materials.length !== requestedIds.length) {
     return NextResponse.json({ error: 'Material not found' }, { status: 404 });
   }
-  if (!material.extracted_text) {
-    return NextResponse.json({ error: 'Material still processing, try again shortly' }, { status: 409 });
+  if (materials.some((m) => !m.extracted_text)) {
+    return NextResponse.json(
+      { error: isMixed ? 'One of the files is still processing, try again shortly' : 'Material still processing, try again shortly' },
+      { status: 409 }
+    );
   }
+
+  // Keep the order the student picked them in.
+  const ordered = requestedIds.map((id) => materials.find((m) => m.id === id)!);
+  const material = { course_code: ordered.find((m) => m.course_code)?.course_code || null };
+  const sourceText = isMixed
+    ? combineMaterials(ordered.map((m) => ({ title: m.title, text: m.extracted_text as string })), MAX_COMBINED_CHARS)
+    : (ordered[0].extracted_text as string);
 
   // ---- Build the discipline + exam-mode aware prompt ----
   const { system, user: userPrompt } = buildGenerationPrompt({
-    extractedText: material.extracted_text,
+    extractedText: sourceText,
     discipline,
     examMode,
     difficulty: difficulty || 'mixed',
     questionCount,
     courseCode: material.course_code,
+    sourceCount: isMixed ? ordered.length : undefined,
+    maxChars: isMixed ? MAX_COMBINED_CHARS + 2000 : undefined,
   });
 
   // ---- Call the AI provider (Gemini by default, Anthropic if AI_PROVIDER=anthropic) ----
@@ -122,13 +146,20 @@ export async function POST(req: Request) {
     );
   }
 
+  // Belt-and-braces: the AI is instructed never to exceed questionCount, but prompt
+  // adherence isn't guaranteed — never let a set be saved with more than the student asked for.
+  if (parsed.questions.length > questionCount) {
+    parsed.questions = parsed.questions.slice(0, questionCount);
+  }
+
   // ---- Persist the question set ----
   const { data: questionSet, error: setError } = await supa
     .from('question_sets')
     .insert({
       user_id: user.id,
-      material_id: materialId,
-      title: title || `${material.course_code || 'Practice'} - ${examMode.toUpperCase()}`,
+      // A mixed set has no single source file, so no per-file tutor/chat link.
+      material_id: isMixed ? null : requestedIds[0],
+      title: title || `${material.course_code || 'Practice'} - ${isMixed ? `Mixed (${ordered.length} files)` : examMode.toUpperCase()}`,
       exam_mode: examMode,
       discipline,
       course_code: material.course_code || null,

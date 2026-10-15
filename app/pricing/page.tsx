@@ -7,6 +7,7 @@ import { useOptionalUser, getAuthHeader } from '@/lib/useUser';
 import { supabase } from '@/lib/supabaseClient';
 import AppNav from '@/components/AppNav';
 import PublicNav from '@/components/PublicNav';
+import { getSafeNext } from '@/lib/safeNext';
 
 declare global {
   interface Window {
@@ -20,6 +21,7 @@ const REASON_COPY: Record<string, string> = {
   limit_reached: "You've used all 3 free generations — unlock full access to keep generating.",
   written_locked: 'Written/theory mode is part of full access.',
   chat_limit_reached: "You've hit today's free chat limit — unlock full access for unlimited chat.",
+  shared_set: 'Unlock full access to finish this practice set — and everything else on CampusCrack.',
   plan_limit_reached:'Free plan is limited to 1 study plan — unlock full access for unlimited plans across all your courses.',
 };
 
@@ -123,7 +125,7 @@ function PricingContent() {
             headers: { 'Content-Type': 'application/json', ...authHeader },
             body: JSON.stringify({ reference: response.reference, purpose: 'premium_unlock' }),
           });
-          window.location.href = '/dashboard?upgraded=1';
+          window.location.href = getSafeNext() || '/dashboard?upgraded=1';
         })();
       },
       onClose: () => setLoading(false),

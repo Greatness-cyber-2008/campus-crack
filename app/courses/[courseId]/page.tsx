@@ -118,6 +118,14 @@ export default function CourseDetailPage({ params }: { params: Promise<{ courseI
           >
             + Add a file to this course
           </Link>
+          {readyCount >= 2 && (
+            <Link
+              href={`/generate?courseId=${course.id}`}
+              className="border border-gold/40 text-gold px-5 py-3 rounded-full text-sm hover:bg-gold/10 transition"
+            >
+              📝 Mixed question set from your files
+            </Link>
+          )}
           {readyCount > 0 && (
             <Link
               href={`/planner/generate?courseId=${course.id}`}

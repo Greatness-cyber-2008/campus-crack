@@ -22,6 +22,9 @@ interface BuildPromptArgs {
   difficulty: Difficulty;
   questionCount: number;
   courseCode?: string;
+  // Set when extractedText is several files combined (see lib/materialText.ts).
+  sourceCount?: number;
+  maxChars?: number;
 }
 
 const DISCIPLINE_GUIDANCE: Record<Discipline, string> = {
@@ -172,6 +175,8 @@ export function buildGenerationPrompt({
   difficulty,
   questionCount,
   courseCode,
+  sourceCount,
+  maxChars,
 }: BuildPromptArgs): { system: string; user: string } {
   const formatInstructions = examMode === 'cbt' ? CBT_FORMAT_INSTRUCTIONS : WRITTEN_FORMAT_INSTRUCTIONS;
   const disciplineNote = DISCIPLINE_GUIDANCE[discipline] || DISCIPLINE_GUIDANCE.general;
@@ -217,10 +222,24 @@ the same underlying concept — this labeling is used to track which topics a st
 many practice sessions, so consistency matters more than variety. Base topics on the actual structure
 of the study material (its sections/subsections), not generic labels.`;
 
+  const multiSourceNote =
+    sourceCount && sourceCount > 1
+      ? `\nThe study material below combines ${sourceCount} separate sources, each marked "=== SOURCE n of ${sourceCount} ===".
+This is a mixed revision set for ONE exam, so spread the questions across ALL ${sourceCount} sources roughly evenly —
+every source must be represented, and no single source should supply most of the questions. Shuffle the order so
+questions from different sources are mixed together rather than grouped by source. Never mention the source
+numbers or file names in the question text itself.\n`
+      : '';
+
   const user = `Course code / topic: ${courseCode || 'Not specified'}
 Discipline: ${discipline}
 Requested question count: ${questionCount}
 Difficulty: ${difficulty}
+${multiSourceNote}
+Generate EXACTLY ${questionCount} questions — not one more, not one fewer. The only exception is if the
+material is genuinely too thin to support ${questionCount} quality questions without repeating content or
+inventing facts; in that case generate fewer, but never generate MORE than ${questionCount} under any
+circumstances, even if the material comfortably supports extra ones.
 
 ${formatInstructions}
 
@@ -236,7 +255,7 @@ ${jsonShape}
 
 STUDY MATERIAL (source of truth — base every question on this content):
 """
-${extractedText.slice(0, 60000)}
+${extractedText.slice(0, maxChars || 60000)}
 """`;
 
   return { system, user };
