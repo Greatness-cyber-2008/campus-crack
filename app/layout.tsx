@@ -1,5 +1,10 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
+import { Archivo_Black, Inter, IBM_Plex_Mono } from 'next/font/google';
+
+const archivo = Archivo_Black({ weight: '400', subsets: ['latin'], display: 'swap', variable: '--font-archivo' });
+const inter = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-inter' });
+const plexMono = IBM_Plex_Mono({ weight: '500', subsets: ['latin'], display: 'swap', variable: '--font-plex-mono' });
 
 const SITE_URL = 'https://campuscrack.com.ng';
 
@@ -32,5 +37,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, maximumScale: 5 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (<html lang="en"><body>{children}</body></html>);
+  return (
+    <html lang="en" className={`${archivo.variable} ${inter.variable} ${plexMono.variable}`}>
+      <body>{children}</body>
+    </html>
+  );
 }

@@ -47,7 +47,7 @@ export default function LandingPage() {
       {/* HERO */}
       <section className="px-4 sm:px-6 md:px-12 pt-10 sm:pt-16 pb-16 sm:pb-24 max-w-6xl mx-auto grid md:grid-cols-[1.3fr_1fr] gap-8 sm:gap-12 items-center">
         <div className="animate-fade-up">
-          <p className="uppercase tracking-[0.2em] text-stamp text-xs font-semibold mb-4">
+          <p className="uppercase tracking-[0.2em] text-stampText text-xs font-semibold mb-4">
             Built for Nigerian university exams
           </p>
           <h1 className="font-display text-3xl sm:text-4xl md:text-5xl lg:text-6xl leading-[1.1] sm:leading-[1.05] mb-6">
@@ -87,6 +87,7 @@ export default function LandingPage() {
                 alt="CampusCrack"
                 width={320}
                 height={320}
+                sizes="(min-width: 768px) 208px, (min-width: 640px) 176px, 112px"
                 priority
                 className="w-28 h-28 sm:w-44 sm:h-44 md:w-52 md:h-52 rounded-xl animate-sparkle"
               />

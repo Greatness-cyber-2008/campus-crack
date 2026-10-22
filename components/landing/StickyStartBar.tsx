@@ -20,9 +20,8 @@ export default function StickyStartBar() {
   return (
     <div
       className={`fixed bottom-4 left-0 right-0 z-30 px-4 flex justify-center pointer-events-none transition-all duration-300 ${
-        show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+        show ? 'opacity-100 translate-y-0 visible' : 'opacity-0 translate-y-4 invisible'
       }`}
-      aria-hidden={!show}
     >
       <div className="pointer-events-auto flex items-center gap-3 bg-ink/95 backdrop-blur border border-gold/30 rounded-full pl-4 pr-1.5 py-1.5 shadow-lg shadow-black/40">
         <span className="text-xs sm:text-sm text-paper font-medium hidden sm:inline">
