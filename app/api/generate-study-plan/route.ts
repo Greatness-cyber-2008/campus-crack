@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aiFailureResponse } from '@/lib/aiErrors';
 import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { buildStudyPlanPrompt } from '@/lib/promptBuilder';
 import { generateWithAI } from '@/lib/aiProvider';
@@ -8,7 +9,7 @@ export const maxDuration = 60;
 const FREE_GENERATIONS_LIMIT = parseInt(process.env.FREE_GENERATIONS_LIMIT || '3', 10);
 // Cap combined text across all materials in a course — keeps the prompt within a sane size
 // even if a student has uploaded many files (notes + past questions + slides) for one course.
-const MAX_COMBINED_CHARS = 90000;
+const MAX_COMBINED_CHARS = parseInt(process.env.STUDY_PLAN_MAX_COMBINED_CHARS || '50000', 10);
 
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
     rawText = await generateWithAI(system, userPrompt);
   } catch (err) {
     console.error('Study plan AI generation error:', err);
-    return NextResponse.json({ error: 'Study plan generation failed, please try again' }, { status: 502 });
+    return aiFailureResponse(err, 'Study plan generation failed, please try again');
   }
 
   let parsed: { weeks: any[] };

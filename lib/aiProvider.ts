@@ -1,3 +1,5 @@
+import { callOpenAIWithBudget, BudgetError } from '@/lib/openAIBudget';
+
 // Lets the app switch between AI providers with a single env var.
 //
 // Supported providers:
@@ -5,8 +7,7 @@
 //   AI_PROVIDER=anthropic
 //   AI_PROVIDER=openai
 //
-// Gemini and Anthropic are kept intact as fallbacks.
-// OpenAI uses the Responses API with explicit prompt caching.
+// Gemini and Anthropic remain supported. OpenAI requests are guarded by a global monthly budget.
 
 const PROVIDER = process.env.AI_PROVIDER || 'gemini';
 
@@ -132,71 +133,32 @@ async function generateWithOpenAI(
     throw new Error('OPENAI_API_KEY is missing');
   }
 
-  const model = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
+  const model = process.env.OPENAI_MODEL || 'gpt-6-luna';
 
-  const res = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
+  const data = await callOpenAIWithBudget({
+    model,
+    feature: 'generation',
+    inputChars: system.length + user.length,
+    maxOutputTokens: Number(process.env.OPENAI_GENERATION_MAX_OUTPUT_TOKENS || '16000'),
+    body: {
       model,
-
       input: [
-        {
-          role: 'developer',
-          content: [
-            {
-              type: 'input_text',
-              text: system,
-              prompt_cache_breakpoint: {
-                mode: 'explicit',
-              },
-            },
-          ],
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: user,
-            },
-          ],
-        },
+        { role: 'developer', content: [{ type: 'input_text', text: system, prompt_cache_breakpoint: { mode: 'explicit' } }] },
+        { role: 'user', content: [{ type: 'input_text', text: user }] },
       ],
-
-      reasoning: {
-        effort: 'medium',
-      },
-
-      text: {
-        format: {
-          type: 'json_object',
-        },
-      },
-
-      prompt_cache_options: {
-        mode: 'explicit',
-        ttl: '30m',
-      },
-    }),
+      reasoning: { effort: process.env.OPENAI_REASONING_EFFORT || 'low' },
+      max_output_tokens: Number(process.env.OPENAI_GENERATION_MAX_OUTPUT_TOKENS || '16000'),
+      text: { format: { type: 'json_object' } },
+      prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+    },
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error('OpenAI API error:', errText);
-    throw new Error('Question generation failed (OpenAI)');
-  }
-
-  const data = await res.json();
 
   if (data.output_text) {
     console.log('OpenAI generation usage:', {
       inputTokens: data.usage?.input_tokens,
       cachedTokens: data.usage?.input_tokens_details?.cached_tokens,
-      cacheWriteTokens: data.usage?.input_tokens_details?.cache_write_tokens,
+      outputTokens: data.usage?.output_tokens,
     });
 
     return data.output_text;
@@ -428,7 +390,7 @@ async function chatWithOpenAI(
     throw new Error('OPENAI_API_KEY is missing');
   }
 
-  const model = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
+  const model = process.env.OPENAI_MODEL || 'gpt-6-luna';
 
   const buildInput = (systemText: string) => [
     {
@@ -490,53 +452,37 @@ async function chatWithOpenAI(
     }),
   ];
 
-  const callOpenAI = (withSearch: boolean) =>
-    fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        input: buildInput(withSearch ? system + WEB_SEARCH_NOTE : system),
-
-        ...(withSearch ? { tools: [{ type: 'web_search' }] } : {}),
-
-        reasoning: {
-          effort: 'medium',
-        },
-
-        prompt_cache_options: {
-          mode: 'explicit',
-          ttl: '30m',
-        },
-      }),
-    });
-
-  let res = await callOpenAI(webSearch);
-
-  // If the search request is rejected, retry once without search so chat keeps working.
-  if (!res.ok && webSearch) {
-    const errText = await res.text();
-    console.error('OpenAI chat with web search failed, retrying without it:', errText);
-    res = await callOpenAI(false);
-  }
-
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error('OpenAI chat API error:', errText);
-    throw new Error('Chat reply failed (OpenAI)');
-  }
-
-  const data = await res.json();
-
-  console.log('OpenAI chat usage:', {
-    inputTokens: data.usage?.input_tokens,
-    cachedTokens: data.usage?.input_tokens_details?.cached_tokens,
-    cacheWriteTokens:
-      data.usage?.input_tokens_details?.cache_write_tokens,
+  const makeBody = (withSearch: boolean) => ({
+    model,
+    input: buildInput(withSearch ? system + WEB_SEARCH_NOTE : system),
+    ...(withSearch ? { tools: [{ type: 'web_search' }] } : {}),
+    reasoning: { effort: process.env.OPENAI_REASONING_EFFORT || 'low' },
+    max_output_tokens: Number(process.env.OPENAI_CHAT_MAX_OUTPUT_TOKENS || '2500'),
+    prompt_cache_options: { mode: 'explicit', ttl: '30m' },
   });
+
+  let data: any;
+  try {
+    data = await callOpenAIWithBudget({
+      model,
+      feature: 'chat',
+      inputChars: system.length + history.reduce((total, turn) => total + turn.content.length + (turn.attachment ? Math.ceil(turn.attachment.base64.length * 0.75) : 0), 0),
+      maxOutputTokens: Number(process.env.OPENAI_CHAT_MAX_OUTPUT_TOKENS || '2500'),
+      body: makeBody(webSearch),
+    });
+  } catch (firstError) {
+    // Search can be rejected for compatibility or transient provider reasons. A fallback
+    // is only attempted if the first call was a web-search request; each call reserves budget.
+    if (!webSearch || firstError instanceof BudgetError) throw firstError;
+    console.error('OpenAI chat with web search failed, retrying without it:', firstError);
+    data = await callOpenAIWithBudget({
+      model,
+      feature: 'chat_retry_no_search',
+      inputChars: system.length + history.reduce((total, turn) => total + turn.content.length + (turn.attachment ? Math.ceil(turn.attachment.base64.length * 0.75) : 0), 0),
+      maxOutputTokens: Number(process.env.OPENAI_CHAT_MAX_OUTPUT_TOKENS || '2500'),
+      body: makeBody(false),
+    });
+  }
 
   if (data.output_text) {
     return data.output_text;

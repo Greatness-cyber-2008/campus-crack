@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { chatWithAI, ChatTurn, ChatAttachment } from '@/lib/aiProvider';
+import { aiFailureResponse } from '@/lib/aiErrors';
+import { PREMIUM_CHAT_MESSAGES_PER_DAY, startOfLagosDayISO } from '@/lib/dailyLimits';
 
 export const maxDuration = 60;
 
 const FREE_CHAT_MESSAGES_PER_DAY = parseInt(process.env.FREE_CHAT_MESSAGES_PER_DAY || '15', 10);
-const MAX_HISTORY_TURNS = 20;
+const MAX_HISTORY_TURNS = parseInt(process.env.MAX_CHAT_HISTORY_TURNS || '12', 10);
 
 // Gives the model the real current date. Computed on every request so it never goes stale.
 function getDateContext() {
@@ -56,7 +58,7 @@ ${NO_MARKDOWN_INSTRUCTION}
 
 STUDY MATERIAL:
 """
-${materialText.slice(0, 60000)}
+${materialText.slice(0, 35000)}
 """`;
 }
 
@@ -240,6 +242,22 @@ export async function POST(req: Request) {
     }
   }
 
+  if (profile?.is_premium) {
+    // Premium is unlimited for normal studying; this daily cap only stops one account from using up the shared AI budget.
+    const { count } = await supa
+      .from('chat_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('role', 'user')
+      .gte('created_at', startOfLagosDayISO());
+    if ((count || 0) >= PREMIUM_CHAT_MESSAGES_PER_DAY) {
+      return NextResponse.json(
+        { error: `You've reached today's limit of ${PREMIUM_CHAT_MESSAGES_PER_DAY} tutor messages. It resets at midnight — see you tomorrow!` },
+        { status: 429 }
+      );
+    }
+  }
+
   let historyQuery = supa
     .from('chat_messages')
     .select('role, content')
@@ -273,7 +291,7 @@ export async function POST(req: Request) {
     reply = await chatWithAI(system, history, { webSearch: isGeneral });
   } catch (err) {
     console.error('Chat AI error:', err);
-    return NextResponse.json({ error: 'Could not get a reply, please try again' }, { status: 502 });
+    return aiFailureResponse(err, 'Could not get a reply, please try again');
   }
 
   const { error: saveError } = await supa.from('chat_messages').insert([

@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { aiFailureResponse } from '@/lib/aiErrors';
+import { PREMIUM_MAX_GENERATIONS_PER_DAY, startOfLagosDayISO } from '@/lib/dailyLimits';
 import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { buildFlashcardPrompt, Discipline } from '@/lib/promptBuilder';
 import { generateWithAI } from '@/lib/aiProvider';
@@ -40,6 +42,21 @@ export async function POST(req: Request) {
     );
   }
 
+  if (profile?.is_premium) {
+    // Premium is unlimited for normal studying; this daily cap only stops one account from using up the shared AI budget.
+    const { count } = await supa
+      .from('flashcard_sets')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', startOfLagosDayISO());
+    if ((count || 0) >= PREMIUM_MAX_GENERATIONS_PER_DAY) {
+      return NextResponse.json(
+        { error: `You've generated ${PREMIUM_MAX_GENERATIONS_PER_DAY} flashcard sets today, which is the daily limit. It resets at midnight.` },
+        { status: 429 }
+      );
+    }
+  }
+
   const { data: material, error: materialError } = await supa
     .from('materials')
     .select('extracted_text, user_id, course_code, discipline')
@@ -65,7 +82,7 @@ export async function POST(req: Request) {
     rawText = await generateWithAI(system, userPrompt);
   } catch (err) {
     console.error('Flashcard AI generation error:', err);
-    return NextResponse.json({ error: 'Flashcard generation failed, please try again' }, { status: 502 });
+    return aiFailureResponse(err, 'Flashcard generation failed, please try again');
   }
 
   let parsed: { flashcards: any[] };

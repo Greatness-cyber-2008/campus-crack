@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { aiFailureResponse } from '@/lib/aiErrors';
 import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { generateWithAI } from '@/lib/aiProvider';
 
@@ -96,7 +97,7 @@ Respond ONLY with a JSON object of this exact shape, no other text:
     raw = await generateWithAI(system, userPrompt);
   } catch (err) {
     console.error('Written grading AI error:', err);
-    return NextResponse.json({ error: 'Could not grade this attempt, please try again' }, { status: 502 });
+    return aiFailureResponse(err, 'Could not grade this attempt, please try again');
   }
 
   let parsed: { results: GradedQuestion[] };
