@@ -3,6 +3,7 @@ import { getUserFromRequest, supabaseServer } from '@/lib/supabaseServer';
 import { buildGenerationPrompt, Discipline, ExamMode, Difficulty } from '@/lib/promptBuilder';
 import { generateWithAI } from '@/lib/aiProvider';
 import { combineMaterials } from '@/lib/materialText';
+import { balanceCorrectAnswers } from '@/lib/balanceAnswers';
 
 export const maxDuration = 60; // AI generation can take a while for big materials
 
@@ -152,13 +153,20 @@ export async function POST(req: Request) {
     parsed.questions = parsed.questions.slice(0, questionCount);
   }
 
+  // The AI over-uses A and B for the right answer; spread correct answers evenly across A-D
+  // so students can't guess by pattern.
+  if (examMode === 'cbt') {
+    parsed.questions = balanceCorrectAnswers(parsed.questions);
+  }
+
   // ---- Persist the question set ----
   const { data: questionSet, error: setError } = await supa
     .from('question_sets')
     .insert({
       user_id: user.id,
-      // A mixed set has no single source file, so no per-file tutor/chat link.
+      // A mixed set has no single file; each question carries its own source file instead.
       material_id: isMixed ? null : requestedIds[0],
+      source_material_ids: requestedIds,
       title: title || `${material.course_code || 'Practice'} - ${isMixed ? `Mixed (${ordered.length} files)` : examMode.toUpperCase()}`,
       exam_mode: examMode,
       discipline,
@@ -188,6 +196,10 @@ export async function POST(req: Request) {
     model_answer: examMode === 'written' ? q.model_answer : null,
     marking_points: examMode === 'written' ? q.marking_points : null,
     marks: 1,
+    // Mixed sets: the AI tags each question with the SOURCE number it used (1-based, in the order picked).
+    source_material_id: isMixed
+      ? ordered[Math.min(Math.max(parseInt(String(q.source), 10) || 0, 1), ordered.length) - 1]?.id ?? null
+      : requestedIds[0],
   }));
 
   const { error: questionsError } = await supa.from('questions').insert(rows);

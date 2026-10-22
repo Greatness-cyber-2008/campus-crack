@@ -66,7 +66,7 @@ const CBT_FORMAT_INSTRUCTIONS = `
 Generate CBT-style multiple choice questions, matching the format of computer-based tests used in Nigerian
 university and professional exams (JAMB/WAEC/university CBT style):
 - Each question has exactly 4 options labeled A, B, C, D.
-- Exactly one option is correct.
+- Exactly one option is correct. Spread the correct answer across A, B, C and D evenly — never favour A or B.
 - Distractors must be plausible — never obviously silly — so the question actually tests understanding.
 - Keep each question answerable within roughly 60-90 seconds (CBT time pressure).
 - Provide a one-to-two sentence explanation of why the correct answer is right, referencing the source material.`;
@@ -222,13 +222,17 @@ the same underlying concept — this labeling is used to track which topics a st
 many practice sessions, so consistency matters more than variety. Base topics on the actual structure
 of the study material (its sections/subsections), not generic labels.`;
 
+  const isMulti = !!(sourceCount && sourceCount > 1);
+  const shape = isMulti ? jsonShape.replace('"topic": "string",', `"topic": "string",\n      "source": 1,`) : jsonShape;
+
   const multiSourceNote =
     sourceCount && sourceCount > 1
       ? `\nThe study material below combines ${sourceCount} separate sources, each marked "=== SOURCE n of ${sourceCount} ===".
 This is a mixed revision set for ONE exam, so spread the questions across ALL ${sourceCount} sources roughly evenly —
 every source must be represented, and no single source should supply most of the questions. Shuffle the order so
 questions from different sources are mixed together rather than grouped by source. Never mention the source
-numbers or file names in the question text itself.\n`
+numbers or file names in the question text itself. Every question must also carry a "source" field: the
+number n (1 to ${sourceCount}) of the SOURCE the question was actually drawn from.\n`
       : '';
 
   const user = `Course code / topic: ${courseCode || 'Not specified'}
@@ -251,7 +255,7 @@ ${disciplineNote}
 ${difficultyNote}
 
 Respond with ONLY this exact JSON shape:
-${jsonShape}
+${shape}
 
 STUDY MATERIAL (source of truth — base every question on this content):
 """
