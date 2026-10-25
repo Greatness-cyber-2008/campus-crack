@@ -33,3 +33,8 @@ where payment_reference = 'campuscrack_REPLACE_ME' and paid_at is null;
 
 -- 5) STOP A REP (their link stops crediting new students; commissions already earned stay)
 update reps set active = false where code = 'TUNDE';
+
+-- 6) LET A REP SEE THEIR DASHBOARD (campuscrack.com.ng/rep)
+--    The rep first signs up on CampusCrack normally (WITHOUT their own link). Then link their account here.
+--    This also stops them earning from their own purchases.
+update reps set user_id = (select id from auth.users where email = 'rep@example.com') where code = 'TUNDE';
