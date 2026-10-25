@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
+import ReferralTracker from '@/components/ReferralTracker';
 import { Archivo_Black, Inter, IBM_Plex_Mono } from 'next/font/google';
 
 const archivo = Archivo_Black({ weight: '400', subsets: ['latin'], display: 'swap', variable: '--font-archivo' });
@@ -39,7 +40,10 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, maxi
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${archivo.variable} ${inter.variable} ${plexMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        <ReferralTracker />
+        {children}
+      </body>
     </html>
   );
 }

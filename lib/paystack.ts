@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { recordRepCommission } from '@/lib/referrals';
 
 // Single place where a Paystack payment turns into premium access. Used by the
 // browser callback (/api/paystack/verify), Paystack's own server-to-server
@@ -117,6 +118,11 @@ export async function fulfilPayment(
     console.error('fulfilPayment: unlock failed, reverting to pending', reference, err);
     await supa.from('payments').update({ status: 'pending' }).eq('paystack_reference', reference);
     return { status: 'rejected', reason: 'unlock_failed' };
+  }
+
+  // Campus reps: credit the rep who brought this student, on their first semester payment only. Best effort.
+  if (purpose === 'premium_unlock') {
+    await recordRepCommission(supa, userId, reference);
   }
 
   return { status: 'success' };
